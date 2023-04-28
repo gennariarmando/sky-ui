@@ -19,11 +19,10 @@ project "sky-ui"
 	}
 	
 	includedirs { 
-		"source/**"
+		"source/**",
 	}
 	
 	includedirs {
-		"vendor/GInputAPI",
 		"$(PLUGIN_SDK_DIR)/shared/",
 		"$(PLUGIN_SDK_DIR)/shared/game/",
 	}
