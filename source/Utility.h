@@ -5,6 +5,9 @@
 #include "CDraw.h"
 #include "CText.h"
 
+#define STB_IMAGE_IMPLEMENTATION
+#include "stb_image.h"
+
 #define DEFAULT_SCREEN_WIDTH 640.0f
 #define DEFAULT_SCREEN_HEIGHT 480.0f
 #define DEFAULT_SCREEN_ASPECT_RATIO (DEFAULT_SCREEN_WIDTH / DEFAULT_SCREEN_HEIGHT)
@@ -100,6 +103,17 @@ static void DrawTriangle(float x, float y, float scale, float angle, CRGBA const
     Draw2DPolygon(posn[0].x, posn[0].y, posn[1].x, posn[1].y, posn[2].x, posn[2].y, posn[3].x, posn[3].y, CRGBA(col));
 }
 
+static void DrawUnfilledRect(float x, float y, float thinkness, float w, float h, CRGBA const& col) {
+    float line = thinkness;
+
+    x -= (w) / 2;
+    y -= (h) / 2;
+    CSprite2d::DrawRect(CRect(x, y, x + (w), y + line), col);
+    CSprite2d::DrawRect(CRect(x + (w), y, x + (w)-line, y + (h)), col);
+    CSprite2d::DrawRect(CRect(x, y + (h), x + (w), y + (h)-line), col);
+    CSprite2d::DrawRect(CRect(x, y, x + line, y + (h)), col);
+}
+
 static wchar_t UpperCaseTable[128] = {
     128, 129, 130, 131, 132, 133, 134, 135, 136, 137, 138,
     139, 140, 141, 142, 143, 144, 145, 146, 147, 148, 149,
@@ -158,19 +172,49 @@ static wchar_t GetLowerCase(wchar_t c) {
         return c + 32;
 }
 
-static std::wstring buff = {};
+static std::wstring wbuff = {};
 static wchar_t* UpperCase(wchar_t* s) {
-    buff = s;
-    for (auto& it : buff)
+    wbuff = s;
+    for (auto& it : wbuff)
         it = GetUpperCase(it);
 
-    return (wchar_t*)buff.c_str();
+    return (wchar_t*)wbuff.c_str();
 }
 
 static wchar_t* LowerCase(wchar_t* s) {
-    buff = s;
-    for (auto& it : buff)
+    wbuff = s;
+    for (auto& it : wbuff)
         it = GetLowerCase(it);
 
-    return (wchar_t*)buff.c_str();
+    return (wchar_t*)wbuff.c_str();
+}
+
+static RwTexture* LoadIMG(const char* path) {
+    RwTexture* texture = nullptr;
+
+    if (path) {
+        int32_t w, h, c;
+        uint8_t* p = stbi_load(path, &w, &h, &c, 4);
+
+        RwRaster* raster = RwRasterCreate(w, h, 0, rwRASTERTYPETEXTURE | rwRASTERFORMAT8888);
+        RwUInt32* pixels = (RwUInt32*)RwRasterLock(raster, 0, rwRASTERLOCKWRITE);
+
+        for (int32_t i = 0; i < w * h * 4; i += 4) {
+            uint8_t r = p[i + 2];
+            uint8_t g = p[i + 1];
+            uint8_t b = p[i];
+
+            p[i + 2] = b;
+            p[i + 1] = g;
+            p[i] = r;
+        }
+
+        memcpy(pixels, p, w * h * 4);
+        RwRasterUnlock(raster);
+        texture = RwTextureCreate(raster);
+        RwTextureSetFilterMode(texture, rwFILTERLINEAR);
+        stbi_image_free(p);
+    }
+
+    return texture;
 }

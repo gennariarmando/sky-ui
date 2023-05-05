@@ -17,11 +17,16 @@
 #include "cDMAudio.h"
 #elif GTASA
 #include "CAudioEngine.h"
+#include <filesystem>
+#include "CFileMgr.h"
 #endif
 
 #include "Utility.h"
 
 #include "ModuleList.hpp"
+
+#include <shlobj.h>
+#pragma comment(lib, "shell32.lib")
 
 using namespace plugin;
 
@@ -37,6 +42,8 @@ public:
 #elif GTASA
     static inline ThiscallEvent <AddressList<0x57BA58, H_CALL>, PRIORITY_AFTER, ArgPickN<CMenuManager*, 0>, void(CMenuManager*, uint8_t)> onDrawStandardMenu;
     static inline ThiscallEvent <AddressList<0x53BF44, H_CALL, 0x53E7A5, H_CALL>, PRIORITY_AFTER, ArgPickN<CMenuManager*, 0>, void(CMenuManager*)> onProcess;
+    static inline ThiscallEvent <AddressList<0x57B66F, H_CALL>, PRIORITY_BEFORE, ArgPick4N<CMenuManager*, 0, int8_t, 1, bool*, 2, bool, 3>, void(CMenuManager*, int8_t arrows, bool* back, bool enter)> onProcessMenuOptions;
+
 #endif
 
 #define HUD_COLOUR_GREENLIGHT 25, 130, 70
@@ -47,8 +54,11 @@ public:
 #define HUD_COLOUR_BLUELIGHT 86, 196, 255 
 #define HUD_COLOUR_BLUEDARK 20, 94, 136
 #define HUD_COLOUR_BLUEWHITE 164, 196, 232
-#define HUD_COLOUR_AZURE2 49, 101, 148
+#define HUD_COLOUR_AZURE 49, 101, 148
+#define HUD_COLOUR_AZUREDARK 80, 100, 123
 #define HUD_COLOUR_GREY 150, 150, 150
+#define HUD_COLOUR_GREYDARK 96, 96, 96
+#define HUD_COLOUR_BLACK 0, 0, 0
 
     inline enum {
         INPUT_TAB,
@@ -68,6 +78,19 @@ public:
         MENUPAGE_MAP = MENUPAGE_NO_MEMORY_CARD,
     };
 #endif
+#endif
+
+#ifdef GTASA
+    inline enum {
+        MENUPAGE_GALLERY = MENUPAGE_MAIN_MENU,
+        MENUPAGE_GALLERY_DELETE_PHOTO = MENUPAGE_JOYPAD_SETTINGS,
+    };
+
+    inline enum {
+        MENUACTION_DELETEGALLERYPHOTO = 101,
+
+    };
+
 #endif
 
     inline enum {
@@ -151,6 +174,24 @@ public:
     static inline bool menuMap = false;
 #endif
 
+#ifdef GTASA
+    inline enum {
+        MAX_GALLERY_PICS = 128,
+    };
+
+    struct tGalleryPhoto {
+        int32_t id;
+        RwTexture* texture;
+    };
+
+    static inline bool scanGalleryPhotos = true;
+    static inline bool createGalleryPhotos = false;
+    static inline int32_t numGalleryPhotos = 0;
+    static inline std::array<tGalleryPhoto, MAX_GALLERY_PICS> galleryPhotos = {};
+    static inline int32_t currentGalleryPhoto = 0;
+    static inline int32_t galleryDeleteTimer = 0;
+#endif
+
     struct tMenuTab {
         char str[8];
         float x, y;
@@ -187,7 +228,7 @@ public:
         { "FEH_STA", 414.0f, 410.0f, MENUPAGE_STATS },
         { "FEH_CON", 198.0f, 432.0f, MENUPAGE_CONTROLLER_PC },
         { "FEH_AUD", 292.0f, 432.0f, MENUPAGE_SOUND_SETTINGS },
-        { "FEH_GAL", 372.0f, 432.0f, MENUPAGE_JOYPAD_SETTINGS },
+        { "FEH_GAL", 372.0f, 432.0f, MENUPAGE_GALLERY },
         { "FEH_DIS", 458.0f, 432.0f, MENUPAGE_DISPLAY_SETTINGS },
 #endif
     };
@@ -319,6 +360,8 @@ public:
 #ifdef GTA3
             targetPage = MENUPAGE_SAVE;
 #elif GTAVC
+            targetPage = MENUPAGE_CHOOSE_SAVE_SLOT;
+#elif GTASA
             targetPage = MENUPAGE_CHOOSE_SAVE_SLOT;
 #endif
         }
@@ -476,6 +519,15 @@ public:
 #elif GTAVC
         if (i == TAB_BRI)
             return;
+#elif GTASA
+        if (i == TAB_GAL) {
+            if (numGalleryPhotos <= 0)
+                return;
+            else {
+                scanGalleryPhotos = true;
+                createGalleryPhotos = true;
+            }
+        }
 #endif
 
         SwitchMenuPage(_this, GetTargetPage(), false);
@@ -529,6 +581,12 @@ public:
         currentInput = INPUT_TAB;
         if (playSound)
             ClearInput();
+
+#ifdef GTASA
+        if (currentTab == TAB_GAL) {
+            GalleryShutdown();
+        }
+#endif
 
         if (_this->m_nCurrentMenuPage == MENUPAGE_SOUND_SETTINGS) {
 #if defined(GTA3) || defined(GTAVC)
@@ -692,7 +750,7 @@ public:
         float y1 = 0.0f;
         float y2 = ScaleY(DEFAULT_SCREEN_HEIGHT - 92.0f);
        
-        if (_this->m_nCurrentMenuPage == MENUPAGE_MAP && currentInput != INPUT_TAB)
+        if ((_this->m_nCurrentMenuPage == MENUPAGE_MAP || _this->m_nCurrentMenuPage == MENUPAGE_CHOOSE_SAVE_SLOT) && currentInput != INPUT_TAB)
             y2 = ScaleY(DEFAULT_SCREEN_HEIGHT);
 #endif
 
@@ -845,14 +903,18 @@ public:
 #elif GTASA
         // Left
         SetHelpText(0, "FE_HLPH");
-        SetHelpText(1, "FE_HLPE");
+
+        if (currentInput == INPUT_TAB && _this->m_bGameNotLoaded) {
+        }
+        else
+            SetHelpText(1, "FE_HLPE");
 
         // Right
         SetHelpText(4, "FE_HLPG");
 
-        if (currentInput == INPUT_STANDARD) {
-            switch (_this->m_nCurrentMenuPage) {
-            case MENUPAGE_MAP:
+        switch (_this->m_nCurrentMenuPage) {
+        case MENUPAGE_MAP:
+            if (currentInput == INPUT_STANDARD) {
                 if (_this->n_nMenuSystemPanelId == -99) {
                     SetHelpText(2, "FE_HLPB");
                     SetHelpText(3, "FE_HLPC");
@@ -864,11 +926,28 @@ public:
                     SetHelpText(4, "FE_HLPI");
                     SetHelpText(5, "FE_HLPT");
                 }
-                break;
             }
-        }
-#endif
+            break;
+        case MENUPAGE_GALLERY:
+            if (currentInput == INPUT_STANDARD) {
+                SetHelpText(0, "FE_HLPM");
+                SetHelpText(4, "FE_HLPF");
 
+                if (numGalleryPhotos <= 1)
+                    SetHelpText(4, nullptr);
+
+                ProcessGallery(_this);
+            }
+            else {
+                if (numGalleryPhotos <= 0)
+                    SetHelpText(0, nullptr);
+
+            }
+            break;
+        }
+
+#endif
+    
         if (timeToWaitBeforeStateChange != -1 && timeToWaitBeforeStateChange < CTimer::m_snTimeInMillisecondsPauseMode) {
             switch (menuState) {
             case STATE_NONE:
@@ -1154,8 +1233,10 @@ public:
 
         float startx = ScaleX(40.0f + GetMenuOffsetX());
         float starty = ScaleY(DEFAULT_SCREEN_HEIGHT - 74.0f);
-        if (_this->m_nCurrentMenuPage == MENUPAGE_MAP && currentInput == INPUT_STANDARD)
-            starty += ScaleY(24.0f);
+
+        if ((_this->m_nCurrentMenuPage == MENUPAGE_MAP || _this->m_nCurrentMenuPage == MENUPAGE_GALLERY) &&
+            currentInput == INPUT_STANDARD)
+            starty += ScaleY(18.0f);
 #endif
         float x = startx;
         float y = starty;
@@ -1243,14 +1324,14 @@ public:
         if (_this->m_nCurrentMenuPage == MENUPAGE_STATS) {
             pos.x1 = ScaleXKeepCentered(90.0f); pos.y1 = ScaleY(140.0f);  pos.x2 = ScaleXKeepCentered(542); pos.y2 = ScaleY(152.0f);
             pos.x3 = ScaleXKeepCentered(108.0f); pos.y3 = ScaleY(338.0f);  pos.x4 = ScaleXKeepCentered(534.0f); pos.y4 = ScaleY(322.0f);
-            Draw2DPolygon(pos.x1, pos.y1, pos.x2, pos.y2, pos.x3, pos.y3, pos.x4, pos.y4, CRGBA(HUD_COLOUR_AZURE2, GetAlpha(130)));
+            Draw2DPolygon(pos.x1, pos.y1, pos.x2, pos.y2, pos.x3, pos.y3, pos.x4, pos.y4, CRGBA(HUD_COLOUR_AZURE, GetAlpha(130)));
         }
         else if (_this->m_nCurrentMenuPage == MENUPAGE_CHOOSE_SAVE_SLOT ||
             _this->m_nCurrentMenuPage == MENUPAGE_CHOOSE_LOAD_SLOT ||
             _this->m_nCurrentMenuPage == MENUPAGE_CHOOSE_DELETE_SLOT) {
             pos.x1 = ScaleXKeepCentered(76.0f); pos.y1 = ScaleY(88.0f);  pos.x2 = ScaleXKeepCentered(576.0f); pos.y2 = ScaleY(78.0f);
             pos.x3 = ScaleXKeepCentered(64.0f); pos.y3 = ScaleY(340.0f);  pos.x4 = ScaleXKeepCentered(556.0f); pos.y4 = ScaleY(354.0f);
-            Draw2DPolygon(pos.x1, pos.y1, pos.x2, pos.y2, pos.x3, pos.y3, pos.x4, pos.y4, CRGBA(HUD_COLOUR_AZURE2, GetAlpha(130)));
+            Draw2DPolygon(pos.x1, pos.y1, pos.x2, pos.y2, pos.x3, pos.y3, pos.x4, pos.y4, CRGBA(HUD_COLOUR_AZURE, GetAlpha(130)));
         }
 
         pos = {};
@@ -1496,7 +1577,7 @@ public:
         DrawHelpText(_this);
 
 #ifdef GTASA
-        if (_this->m_nCurrentMenuPage == MENUPAGE_MAP && currentInput == INPUT_STANDARD)
+        if ((_this->m_nCurrentMenuPage == MENUPAGE_MAP || _this->m_nCurrentMenuPage == MENUPAGE_GALLERY) && currentInput == INPUT_STANDARD)
             return;
 #endif
 
@@ -1714,11 +1795,7 @@ public:
     }
 
     static inline void Init() {
-        if (initialised)
-            return;
-
         for (int i = 0; i < NUM_MENU_PAGES; i++) {
-
             for (int j = 0; j < NUM_ENTRIES; j++) {
 #ifdef GTAVC
                 if (aScreens[i].m_aEntries[j].m_nX != 0 && aScreens[i].m_aEntries[j].m_nAlign == 1) {
@@ -1732,7 +1809,16 @@ public:
                 }
 
 #endif
-                if (!strcmp(aScreens[i].m_aEntries[j].m_EntryName, "FEDS_TB") ||
+#ifdef GTASA
+                if (i == MENUPAGE_GALLERY || i == MENUPAGE_GALLERY_DELETE_PHOTO) {
+                    aScreens[i].m_aEntries[j].m_nAction = MENUACTION_NOTHING;
+                    aScreens[i].m_aEntries[j].m_EntryName[0] = '\0';
+                    aScreens[i].m_aEntries[j].m_nSaveSlot = 0;
+                    aScreens[i].m_aEntries[j].m_nTargetMenu = MENUPAGE_NONE;
+                }
+#endif
+
+                if ((!strcmp(aScreens[i].m_aEntries[j].m_EntryName, "FEDS_TB") && i != MENUPAGE_CHOOSE_LOAD_SLOT && i != MENUPAGE_CHOOSE_DELETE_SLOT) ||
                     (!strcmp(aScreens[i].m_aEntries[j].m_EntryName, "FET_DEF") && i != MENUPAGE_CONTROLLER_PC)) {
                     aScreens[i].m_aEntries[j].m_nAction = MENUACTION_NOTHING;
                     aScreens[i].m_aEntries[j].m_EntryName[0] = '\0';
@@ -1814,6 +1900,33 @@ public:
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_nPreviousPage = MENUPAGE_DISPLAY_SETTINGS;
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_nParentEntry = 9;
 #elif GTASA
+        strcpy(aScreens[MENUPAGE_GALLERY].m_ScreenName, "FEH_GAL");
+        aScreens[MENUPAGE_GALLERY].m_nPreviousPage = MENUPAGE_GALLERY;
+
+        strcpy(aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_ScreenName, "FEH_GAL");
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_nPreviousPage = MENUPAGE_GALLERY;
+
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[0].m_nAction = MENUACTION_LABEL;
+        strcpy(aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[0].m_EntryName, "FEG_DL2");
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[0].m_nX = 0;
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[0].m_nY = 0;
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[0].m_nAlign = 0;
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[0].m_nTargetMenu = MENUPAGE_GALLERY;
+        
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[1].m_nAction = MENUACTION_NO;
+        strcpy(aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[1].m_EntryName, "FEM_NO");
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[1].m_nX = 320;
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[1].m_nY = 210;
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[1].m_nAlign = 0;
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[1].m_nTargetMenu = MENUPAGE_GALLERY;
+
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[2].m_nAction = MENUACTION_DELETEGALLERYPHOTO;
+        strcpy(aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[2].m_EntryName, "FEM_YES");
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[2].m_nX = 0;
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[2].m_nY = 0;
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[2].m_nAlign = 0;
+        aScreens[MENUPAGE_GALLERY_DELETE_PHOTO].m_aEntries[2].m_nTargetMenu = MENUPAGE_NONE;
+
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_nPreviousPage = MENUPAGE_DISPLAY_SETTINGS;
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_nParentEntry = 6;
 
@@ -1856,13 +1969,30 @@ public:
         aScreens[MENUPAGE_DISPLAY_SETTINGS].m_aEntries[6].m_nAction = MENUACTION_CHANGEMENU;
         aScreens[MENUPAGE_DISPLAY_SETTINGS].m_aEntries[6].m_nTargetMenu = MENUPAGE_LANGUAGE_SETTINGS;
         aScreens[MENUPAGE_DISPLAY_SETTINGS].m_aEntries[6].m_nY -= 8;
+
+        strcpy(aScreens[MENUPAGE_CHOOSE_LOAD_SLOT].m_aEntries[9].m_EntryName, "FESZ_CA");
+        aScreens[MENUPAGE_CHOOSE_LOAD_SLOT].m_aEntries[9].m_nAlign = 0;
+        aScreens[MENUPAGE_CHOOSE_LOAD_SLOT].m_aEntries[9].m_nX = 0;
+        aScreens[MENUPAGE_CHOOSE_LOAD_SLOT].m_aEntries[9].m_nY = 0;
+
+        strcpy(aScreens[MENUPAGE_CHOOSE_DELETE_SLOT].m_aEntries[9].m_EntryName, "FESZ_CA");
+        aScreens[MENUPAGE_CHOOSE_DELETE_SLOT].m_aEntries[9].m_nAlign = 0;
+        aScreens[MENUPAGE_CHOOSE_DELETE_SLOT].m_aEntries[9].m_nX = 0;
+        aScreens[MENUPAGE_CHOOSE_DELETE_SLOT].m_aEntries[9].m_nY = 0;
+
+        strcpy(aScreens[MENUPAGE_CHOOSE_SAVE_SLOT].m_aEntries[9].m_EntryName, "FESZ_CA");
+        aScreens[MENUPAGE_CHOOSE_SAVE_SLOT].m_aEntries[9].m_nAlign = 0;
+        aScreens[MENUPAGE_CHOOSE_SAVE_SLOT].m_aEntries[9].m_nX = 0;
+        aScreens[MENUPAGE_CHOOSE_SAVE_SLOT].m_aEntries[9].m_nY = 0;
 #endif
 
-        initialised = true;
         //Clear(_this);
     }
 
     static inline void InitAfterRw() {
+        if (initialised)
+            return;
+
         CheckForExternalScripts();
 
 #if defined(GTA3) && defined(GTA3_MENU_MAP)
@@ -1872,6 +2002,8 @@ public:
             aScreens[MENUPAGE_DISPLAY_SETTINGS].m_aEntries[8].m_nTargetMenu = MENUPAGE_NONE;
         }
 #endif
+
+        initialised = true;
     }
 
     static inline void Clear(CMenuManager* _this, bool run = false) {
@@ -1903,18 +2035,193 @@ public:
 
 #ifdef GTASA
         _this->m_bStandardInput = false;
+        scanGalleryPhotos = true;
 #endif
     }
 
-    static inline void Shutdown(CMenuManager* _this) {
+#ifdef GTASA
+    static inline void GalleryShutdown() {
+        for (auto& it : galleryPhotos) {
+            if (it.texture) {
+                RwTextureDestroy(it.texture);
+                it.texture = nullptr;
+            }
 
+            it.id = 0;
+        }
     }
+
+    static inline void ProcessGallery(CMenuManager* _this) {
+        if (galleryDeleteTimer > CTimer::m_snTimeInMillisecondsPauseMode)
+            return;
+
+        galleryDeleteTimer = 0;
+
+        bool playSound = false;
+        if (GetLeft()) {
+            currentGalleryPhoto--;
+            playSound = true;
+        }
+        else if (GetRight()) {
+            currentGalleryPhoto++;
+            playSound = true;
+        }
+
+        if (playSound) {
+            if (numGalleryPhotos > 1)
+                AudioEngine.ReportFrontendAudioEvent(FE_SOUND_SWITCH, 0.0f, 1.0f);
+        }
+
+        if (currentGalleryPhoto < 0)
+            currentGalleryPhoto = numGalleryPhotos - 1;
+        else if (currentGalleryPhoto > numGalleryPhotos - 1)
+            currentGalleryPhoto = 0;
+
+
+        if (GetEnter()) {
+            SwitchMenuPage(_this, MENUPAGE_GALLERY_DELETE_PHOTO, true);
+        }
+    }
+
+    static inline void ProcessGalleryDeletePic(CMenuManager* _this) {
+        CFileMgr::SetDirMyDocuments();
+        char buff[MAX_PATH];
+        sprintf(buff, "Gallery\\gallery%d.jpg", galleryPhotos[currentGalleryPhoto].id);
+        std::remove(buff);
+        CFileMgr::SetDir("");
+
+        scanGalleryPhotos = true;
+        createGalleryPhotos = true;
+        galleryDeleteTimer = CTimer::m_snTimeInMillisecondsPauseMode + 500;
+    }
+
+    static inline CRect ScaleImage(float imageWidth, float imageHeight, float targetWidth, float targetHeight, float x, float y) {
+        float aspectRatio = imageWidth / imageHeight;
+
+        float widthScaled = targetWidth;
+        float heightScaled = widthScaled / aspectRatio;
+
+        if (heightScaled > targetHeight) {
+            heightScaled = targetHeight;
+            widthScaled = heightScaled * aspectRatio;
+        }
+
+        return { x - (widthScaled / 2), y - (heightScaled / 2), x + (widthScaled / 2), y + (heightScaled / 2) };
+    }
+
+    static inline void ScanGallery(CMenuManager* _this) {
+        if (!scanGalleryPhotos)
+            return;
+
+        GalleryShutdown();
+
+        int32_t i = 1;
+        numGalleryPhotos = 0;
+        currentGalleryPhoto = 0;
+
+        CFileMgr::SetDirMyDocuments();
+        while (i < MAX_GALLERY_PICS) {
+            char buff[MAX_PATH];
+            sprintf(buff, "Gallery\\gallery%d.jpg", i);
+
+            if (std::filesystem::exists(buff)) {
+                if (createGalleryPhotos) {
+                    galleryPhotos[numGalleryPhotos].id = i;
+                    galleryPhotos[numGalleryPhotos].texture = LoadIMG(buff);
+                }
+                numGalleryPhotos++;
+            }
+            i++;
+        }
+        CFileMgr::SetDir("");
+
+        if (numGalleryPhotos <= 0)
+            EscTab(_this, false);
+
+        createGalleryPhotos = false;
+        scanGalleryPhotos = false;
+    }
+
+    static inline void DrawGallery(CMenuManager* _this) {
+        ScanGallery(_this);
+
+        if (currentInput == INPUT_TAB) {
+            CFont::SetProportional(true);
+            CFont::SetBackground(false, false);
+            CFont::SetOrientation(ALIGN_CENTER);
+            CFont::SetWrapx(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 100.0f));
+            CFont::SetDropShadowPosition(2);
+            CFont::SetDropColor(CRGBA(0, 0, 0, 255));
+            CFont::SetColor(CRGBA(HUD_COLOUR_ORANGE, 255));
+            CFont::SetFontStyle(FONT_PRICEDOWN);
+            CFont::SetScale(ScaleX(2.1f), ScaleY(3.3f));
+
+            char buff[8];
+            sprintf(buff, "%d", numGalleryPhotos);
+            CFont::PrintString(SCREEN_WIDTH / 2, ScaleY(161.0f), buff);
+
+            CFont::SetDropShadowPosition(2);
+            CFont::SetColor(CRGBA(HUD_COLOUR_AZUREDARK, 255));
+            CFont::SetFontStyle(FONT_MENU);
+            CFont::SetOrientation(ALIGN_LEFT);
+            CFont::SetScale(ScaleX(0.41f), ScaleY(0.89f));
+            CFont::PrintString(ScaleXKeepCentered(100.0f), ScaleY(247.0f), TheText.Get("FEG_HOW"));
+        }
+        else {
+            const float w = (528.0f / 2);
+            const float h = (362.0f / 2);
+
+            if (numGalleryPhotos < currentGalleryPhoto)
+                return;
+
+            CSprite2d::DrawRect(CRect((SCREEN_WIDTH / 2) - ScaleX(w), (SCREEN_HEIGHT / 2) - ScaleY(h), (SCREEN_WIDTH / 2) + ScaleX(w), (SCREEN_HEIGHT / 2) + ScaleY(h)), CRGBA(HUD_COLOUR_BLACK, 255));
+
+            RwTexture* t = galleryPhotos[currentGalleryPhoto].texture;
+            if (t) {
+                CRect rect = ScaleImage(t->raster->width, t->raster->height, ScaleX(w * 2), ScaleY(h * 2), SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2);
+
+                RwRenderStateSet(rwRENDERSTATETEXTURERASTER, RwTextureGetRaster(t));
+                CSprite2d::SetVertices(rect, CRGBA(255, 255, 255, 255), CRGBA(255, 255, 255, 255), CRGBA(255, 255, 255, 255), CRGBA(255, 255, 255, 255));
+                RwIm2DRenderPrimitive(rwPRIMTYPETRIFAN, CSprite2d::maVertices, 4);
+
+                CFont::SetProportional(true);
+                CFont::SetBackground(false, false);
+                CFont::SetOrientation(ALIGN_RIGHT);
+                CFont::SetWrapx(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 100.0f));
+                CFont::SetDropShadowPosition(0);
+                CFont::SetEdge(2);
+                CFont::SetDropColor(CRGBA(0, 0, 0, 255));
+                CFont::SetColor(CRGBA(HUD_COLOUR_WHITE, 255));
+                CFont::SetFontStyle(FONT_PRICEDOWN);
+                CFont::SetScale(ScaleX(0.8f), ScaleY(0.8f));
+
+                char buff[32];
+                sprintf(buff, "%d/%d (%d)", currentGalleryPhoto + 1, numGalleryPhotos, numGalleryPhotos);
+                CFont::PrintString((SCREEN_WIDTH / 2) + ScaleX(w - 33.0f), (SCREEN_HEIGHT / 2) + ScaleY(h - 37.0f), buff);
+            }
+
+            DrawUnfilledRect(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, ScaleY(4.0f), ScaleX(w * 2), ScaleY(h * 2), CRGBA(HUD_COLOUR_BLACK, 255));
+            DrawUnfilledRect(SCREEN_WIDTH / 2, SCREEN_HEIGHT / 2, ScaleY(3.0f), ScaleX(w * 2), ScaleY(h * 2), CRGBA(HUD_COLOUR_GREYDARK, 255));
+        }
+    }
+
+    static void ProcessMenuOptions(CMenuManager* _this, int8_t arrows, bool* back, bool enter) {
+        switch (aScreens[_this->m_nCurrentMenuPage].m_aEntries[_this->m_nCurrentMenuEntry].m_nAction) {
+        case MENUACTION_DELETEGALLERYPHOTO:
+            if (enter) {
+                ProcessGalleryDeletePic(_this);
+                _this->SwitchToNewScreen(MENUPAGE_GALLERY);
+                return;
+            }
+        };
+    }
+#endif
 
     SkyUI() {
 #ifdef GTA3
         // No green bar
         plugin::patch::Nop(0x47C597, 5);
-
+        
         //auto drawHeader = [](float, float, wchar_t* str) {
         //
         //};
@@ -2138,10 +2445,13 @@ public:
             InitAfterRw();
         };
 
-        onProcess.before += [](CMenuManager* _this) {
+        plugin::Events::shutdownRwEvent += []() {
 #ifdef GTASA
-            _this->SwitchMenuOnAndOff();
+            GalleryShutdown();
 #endif
+        };
+
+        onProcess.before += [](CMenuManager* _this) {
             if (_this->m_bMenuActive || _this->m_bSaveMenuActive) {
                 if (!menuActive) {
                     if (!saveMenuActive && _this->m_bSaveMenuActive) {
@@ -2173,6 +2483,14 @@ public:
 
         onDrawStandardMenu.after += [](CMenuManager* _this) {
             DrawFront(_this);
+
+#ifdef GTASA
+            switch (_this->m_nCurrentMenuPage) {
+            case MENUPAGE_GALLERY:
+                DrawGallery(_this);
+                break;
+            };
+#endif
         };
 
 #ifdef GTA3
@@ -2189,9 +2507,6 @@ public:
         };
 #else
         auto userInput = [](CMenuManager* _this, uint32_t) {
-            if (!menuActive)
-                SwitchMenuPage(_this, tabs.at(currentTab).targetPage, true);
-
             if (currentInput == INPUT_STANDARD) {
                 if (GetCheckHoverForStandardInput(_this)) {
                     _this->UserInput();
@@ -2210,7 +2525,11 @@ public:
         };
 #elif GTASA
         plugin::patch::RedirectCall(0x57B457, LAMBDA(void, __fastcall, userInput, CMenuManager*, uint32_t));
-        plugin::patch::PutRetn(0x57B477);
+        plugin::patch::SetUChar(0x57C2E4, 0xEB);
+
+        onProcessMenuOptions += [](CMenuManager* _this, int8_t arrows, bool* back, bool enter) {
+            ProcessMenuOptions(_this, arrows, back, enter);
+        };
 #endif
  }
 
