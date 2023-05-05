@@ -5,6 +5,8 @@
 #include "CDraw.h"
 #include "CText.h"
 
+#define FLASH_ITEM(on, off) (CTimer::m_snTimeInMilliseconds % on + off < on)
+
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 

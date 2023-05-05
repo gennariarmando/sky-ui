@@ -19,6 +19,8 @@
 #include "CAudioEngine.h"
 #include <filesystem>
 #include "CFileMgr.h"
+#include "CHud.h"
+#include "CTxdStore.h"
 #endif
 
 #include "Utility.h"
@@ -190,6 +192,8 @@ public:
     static inline std::array<tGalleryPhoto, MAX_GALLERY_PICS> galleryPhotos = {};
     static inline int32_t currentGalleryPhoto = 0;
     static inline int32_t galleryDeleteTimer = 0;
+
+    static inline CSprite2d skipHighSprite;
 #endif
 
     struct tMenuTab {
@@ -2003,7 +2007,23 @@ public:
         }
 #endif
 
+#ifdef GTASA
+        int32_t slot = CTxdStore::FindTxdSlot("hud");
+
+        if (slot != -1) {
+            CTxdStore::SetCurrentTxd(slot);
+            skipHighSprite.SetTexture("SkipHigh");
+            CTxdStore::PopCurrentTxd();
+        }
+#endif
+
         initialised = true;
+    }
+
+    static inline void ShutdownAfterRw() {
+        GalleryShutdown();
+
+        skipHighSprite.Delete();
     }
 
     static inline void Clear(CMenuManager* _this, bool run = false) {
@@ -2447,7 +2467,7 @@ public:
 
         plugin::Events::shutdownRwEvent += []() {
 #ifdef GTASA
-            GalleryShutdown();
+            ShutdownAfterRw();
 #endif
         };
 
@@ -2530,6 +2550,24 @@ public:
         onProcessMenuOptions += [](CMenuManager* _this, int8_t arrows, bool* back, bool enter) {
             ProcessMenuOptions(_this, arrows, back, enter);
         };
+
+        auto drawTripSkipSprite = [](CSprite2d* sprite, uint32_t, CRect const& rect, CRGBA const& col) {
+            const float x = rect.left;
+            const float y = rect.top;
+
+            const float w = (rect.right - rect.left) / 2;
+            const float h = (rect.bottom - rect.top) / 2;
+
+            sprite->Draw(CRect(x, y, x + w, y + h), col); // Left top
+            sprite->Draw(CRect(x + w + w, y, x + w, y + h), col); // Right top
+
+            sprite->Draw(CRect(x, y + h + h, x + w, y + h), col); // Left bottom
+            sprite->Draw(CRect(x + w + w, y + h + h, x + w, y + h), col); // Right bottom
+
+            if (FLASH_ITEM(1000, 500))
+                skipHighSprite.Draw(x + (w * 1.15f), y + (h * 0.775f), w * 0.425f, h * 0.425f, col);
+        };
+        plugin::patch::RedirectCall(0x58A1F3, LAMBDA(void, __fastcall, drawTripSkipSprite, CSprite2d* sprite, uint32_t, CRect const& rect, CRGBA const& col));
 #endif
  }
 
