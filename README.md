@@ -15,7 +15,7 @@ PS2 like main menu for GTA: III/Vice City and San Andreas.
  ## Screenshots:
  <p align="center">
  <img src="https://i.imgur.com/zHSB5Ju.png" width="576" height="324">
- <img src="https://i.imgur.com/vCMbfIu.png" width="576" height="324">
+ <img src="https://i.imgur.com/lfnwDKc.png" width="576" height="324">
  <img src="https://i.imgur.com/b2gw7BO.png" width="576" height="324">
  </p>
  
