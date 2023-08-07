@@ -175,7 +175,7 @@ static wchar_t GetLowerCase(wchar_t c) {
 }
 
 static std::wstring wbuff = {};
-static wchar_t* UpperCase(wchar_t* s) {
+static wchar_t* UpperCase(const wchar_t* s) {
     wbuff = s;
     for (auto& it : wbuff)
         it = GetUpperCase(it);
@@ -219,4 +219,18 @@ static RwTexture* LoadIMG(const char* path) {
     }
 
     return texture;
+}
+
+void DrawProgressBar(float x, float y, float w, float h, float progress, CRGBA const& front, CRGBA const& back) {
+    progress = plugin::Clamp(progress, 0.0f, 1.0f);
+    
+    float b = ScaleY(2.0f);
+    float s = ScaleY(4.0f);
+    CSprite2d::DrawRect(CRect(x - b + s, y - b + s, x + w + b + s, y + h + b + s), CRGBA(0, 0, 0, min(back.a, 200)));
+
+    CSprite2d::DrawRect(CRect(x - b, y - b, x + w + b, y + h + b), CRGBA(0, 0, 0, back.a));
+    CSprite2d::DrawRect(CRect(x, y, x + w, y + h), back);
+    
+    if (progress > 0.0f)
+        CSprite2d::DrawRect(CRect(x, y, x + w * progress, y + h), front);
 }
