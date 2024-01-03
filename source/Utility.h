@@ -93,6 +93,40 @@ static void DrawSpriteWithRotation(CSprite2d* sprite, float x, float y, float w,
         CSprite2d::DrawRect(CRect(x - (w * 0.5f), y - (h * 0.5f), x + (w * 0.5f), y + (h * 0.5f)), col);
 }
 
+static int32_t vertexCount = 0;
+
+static void Begin() {
+    vertexCount = 0;
+}
+
+static void SetVertex(float x, float y, float z, float w, float u, float v, int32_t col) {
+    RwIm2DVertex* maVertices = CSprite2d::maVertices;
+    maVertices[vertexCount].x = x;
+    maVertices[vertexCount].y = y;
+    maVertices[vertexCount].z = 0.0f;
+    maVertices[vertexCount].rhw = 1.0f / CSprite2d::RecipNearClip;
+    maVertices[vertexCount].emissiveColor = col;
+    maVertices[vertexCount].u = u;
+    maVertices[vertexCount].v = v;
+    vertexCount++;
+}
+
+static void End(const CSprite2d* sprite) {
+    if (sprite)
+        RwRenderStateSet(rwRENDERSTATETEXTURERASTER, sprite->m_pTexture->raster);
+    else
+        RwRenderStateSet(rwRENDERSTATETEXTURERASTER, 0);
+
+    RwRenderStateSet(rwRENDERSTATESHADEMODE, (void*)rwSHADEMODEFLAT);
+    RwRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)FALSE);
+    RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)FALSE);
+    RwRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, (void*)TRUE);
+    RwIm2DRenderPrimitive(rwPRIMTYPETRIFAN, CSprite2d::maVertices, 4);
+    RwRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)TRUE);
+    RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)TRUE);
+    RwRenderStateSet(rwRENDERSTATESHADEMODE, (void*)rwSHADEMODEGOURAUD);
+}
+
 static void DrawTriangle(float x, float y, float scale, float angle, CRGBA const& col) {
     CVector2D posn[4];
     float w = scale;

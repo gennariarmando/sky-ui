@@ -1,6 +1,6 @@
 #ifdef GTA3
 #define GTA3_MENU_MAP
-#define LCSFICATION
+//#define LCSFICATION // LC01 only
 #define FRAME_LIMITER
 #endif
 
@@ -18,9 +18,23 @@
 #include "Timer.h"
 
 #ifdef GTA3
+#include "CAnimManager.h"
 #include "cDMAudio.h"
+#include "CPlayerSkin.h"
+#include "CScene.h"
+#include "CWorld.h"
+#include "dxsdk/d3d8.h"
+#include "CCivilianPed.h"
+#include "CPopulation.h"
+
+#include "eAnimations.h"
+#include "CAnimBlendAssociation.h"
+#include "RpAnimBlend.h"
 #elif GTAVC
 #include "cDMAudio.h"
+#include "CPlayerSkin.h"
+#include "CScene.h"
+#include "dxsdk/d3d8.h"
 #elif GTASA
 #include "CAudioEngine.h"
 #include <filesystem>
@@ -38,15 +52,16 @@
 
 #include "GInputAPI.h"
 
-using namespace plugin;
+#include "../injector/assembly.hpp"
 
-Timer timer;
+
+using namespace plugin;
 
 class __declspec(dllexport) SkyUI {
 public:
 #ifdef GTA3
     static inline ThiscallEvent <AddressList<0x48E721, H_CALL, 0x48C8A4, H_CALL>, PRIORITY_AFTER, ArgPickN<CMenuManager*, 0>, void(CMenuManager*)> onProcess;
-    static inline ThiscallEvent <AddressList<0x47AB12, H_CALL>, PRIORITY_AFTER, ArgPickN<CMenuManager*, 0>, void(CMenuManager*)> onDrawStandardMenu;
+    static inline ThiscallEvent <AddressList<0x47AB12, H_CALL, 0x47AB07, H_CALL, 0x47AAFE, H_CALL>, PRIORITY_AFTER, ArgPickN<CMenuManager*, 0>, void(CMenuManager*)> onDrawStandardMenu;
     static inline CdeclEvent <AddressList<0x582E3C, H_CALL>, PRIORITY_AFTER, ArgPickNone, void(int32_t, int32_t)> onProcessGameState7;
     static inline ThiscallEvent <AddressList<0x485183, H_CALL, 0x5816A5, H_CALL>, PRIORITY_AFTER, ArgPickN<CMenuManager*, 0>, void(CMenuManager*)> onLoadAllMenuTextures;
     static inline ThiscallEvent <AddressList<0x47A1F3, H_CALL, 0x485682, H_CALL, 0x48ABA0, H_CALL, 0x48C71D, H_CALL,
@@ -62,6 +77,9 @@ public:
     static inline ThiscallEvent <AddressList<0x57B66F, H_CALL>, PRIORITY_BEFORE, ArgPick4N<CMenuManager*, 0, int8_t, 1, bool*, 2, bool, 3>, void(CMenuManager*, int8_t arrows, bool* back, bool enter)> onProcessMenuOptions;
 #endif
 
+    static inline Timer timer;
+
+#define HUD_COLOUR_RED_LC01 219, 36, 38
 #define HUD_COLOUR_RED 205, 5, 5
 #define HUD_COLOUR_GREENLIGHT 25, 130, 70
 #define HUD_COLOUR_ORANGE 144, 98, 16
@@ -79,6 +97,7 @@ public:
 #define HUD_COLOUR_GREYLIGHT 205, 205, 205
 #define HUD_COLOUR_LCS_GREY 14, 16, 21
 #define HUD_COLOUR_LCS_MENU 111, 165, 208
+#define HUD_COLOUR_YELLOW_LIGHT 255, 235, 150
 
 #if defined(GTA3) && defined(LCSFICATION)
 #define LCS_MENU_SCALE_X (0.5f)
@@ -87,7 +106,6 @@ public:
 #else
 #define MENU_OFFSET_Y (0.0f)
 #endif
-
 
     inline enum {
         INPUT_TAB,
@@ -113,6 +131,7 @@ public:
     inline enum {
         MENUPAGE_GALLERY = MENUPAGE_MAIN_MENU,
         MENUPAGE_GALLERY_DELETE_PHOTO = MENUPAGE_JOYPAD_SETTINGS,
+        MENUPAGE_MODLOADER = 44,
     };
 
     inline enum {
@@ -132,6 +151,7 @@ public:
         TAB_CON,
         TAB_AUD,
         TAB_DIS,
+        TAB_PS,
 #else
 #ifdef GTA3_MENU_MAP
         TAB_MAP,
@@ -217,7 +237,27 @@ public:
 
 #if defined(GTA3) && defined(LCSFICATION)
     static inline CSprite2d backgroundSprite = {};
+    static inline CSprite2d skinSelSprite = {};
+
+    static inline bool playerSkinInitialised = false;
 #endif
+
+    static inline bool modLoader = false;
+
+    inline enum {
+        PCBTN_LEFT,
+        PCBTN_RIGHT,
+        PCBTN_UP,
+        PCBTN_DOWN,
+        NUM_PC_BTNS
+    };
+    static inline std::array<CSprite2d, NUM_PC_BTNS> pcbtnsSprites = {};
+    static inline const char* pcbtnsSpritesNames[NUM_PC_BTNS] = {
+        "left",
+        "right",
+        "up",
+        "down",
+    };
 
     static inline bool HasPadInHands() {
         return gInputPad ? gInputPad->HasPadInHands() : false;
@@ -254,13 +294,14 @@ public:
     static inline std::vector<tMenuTab> tabs = {
 #ifdef GTA3
 #ifdef LCSFICATION
-        { "FEG_MAP", 180.0f, 408.0f, MENUPAGE_MAP },
-        { "FEB_BRI", 256.0f, 408.0f, MENUPAGE_BRIEFS },
-        { "FEB_SAV", 334.0f, 408.0f, MENUPAGE_NEW_GAME },
-        { "FEB_STA", 420.0f, 408.0f, MENUPAGE_STATS },
-        { "FEB_CON", 208.0f, 432.0f, MENUPAGE_CONTROLLER_PC },
-        { "FEB_AUD", 312.0f, 432.0f, MENUPAGE_SOUND_SETTINGS },
-        { "FEB_DIS", 408.0f, 432.0f, MENUPAGE_DISPLAY_SETTINGS },
+        { "FEG_MAP", 221.0f, 408.0f, MENUPAGE_MAP },
+        { "FEB_BRI", 287.0f, 408.0f, MENUPAGE_BRIEFS },
+        { "FEB_SAV", 350.0f, 408.0f, MENUPAGE_NEW_GAME },
+        { "FEB_STA", 414.0f, 408.0f, MENUPAGE_STATS },
+        { "FEB_CON", 198.0f, 432.0f, MENUPAGE_CONTROLLER_PC },
+        { "FEB_AUD", 292.0f, 432.0f, MENUPAGE_SOUND_SETTINGS },
+        { "FEB_DIS", 372.0f, 432.0f, MENUPAGE_DISPLAY_SETTINGS },
+        { "FEB_PS",  458.0f, 432.0f, MENUPAGE_SKIN_SELECT },
 #else
 #ifdef GTA3_MENU_MAP
 #define MAP_TAB_OFFSET_X + 66.0f
@@ -460,7 +501,7 @@ public:
 
     static inline void ClearInput() {
         CPad* pad = CPad::GetPad(0);
-        pad->Clear(1
+        pad->Clear(0
 #ifdef GTASA
         , 1
 #endif
@@ -471,6 +512,11 @@ public:
         _this->m_nPreviousMenuPage = _this->m_nCurrentMenuPage;
         _this->m_nCurrentMenuPage = page;
         _this->m_nCurrentMenuEntry = 0;
+
+#if defined(GTA3) && defined(LCSFICATION)
+        currPlayerSkinPage = 0;
+        currPlayerSkin = 0;
+#endif
 
 #ifdef GTAVC
         _this->m_nOptionHighlightTransitionBlend = 0;
@@ -484,6 +530,23 @@ public:
 #if (defined(GTA3) && !defined(LCSFICATION)) || defined(GTAVC)
         if (refresh) {
             _this->m_nMenuFadeAlpha = 0;
+        }
+#endif
+
+#if defined(GTA3) && defined(LCSFICATION)
+        if (page == MENUPAGE_SKIN_SELECT && !playerSkinInitialised) {
+            CPlayerSkin::BeginFrontendSkinEdit();
+            _this->m_bSkinsFound = false;
+            playerRotation = -25.0f;
+            playerRotationLerp = -25.0f;
+            playerZoom = 1.0f;
+            playerZoomLerp = 1.0f;
+            playerSkinInitialised = true;
+        }
+
+        if (page != MENUPAGE_SKIN_SELECT && playerSkinInitialised) {
+            CPlayerSkin::EndFrontendSkinEdit();
+            playerSkinInitialised = false;
         }
 #endif
     }
@@ -831,7 +894,8 @@ public:
             y2 = ScaleY(DEFAULT_SCREEN_HEIGHT);
 #endif
 
-        if (_this->m_nCurrentMenuPage == MENUPAGE_KEYBOARD_CONTROLS)
+        if (_this->m_nCurrentMenuPage == MENUPAGE_KEYBOARD_CONTROLS
+            )
             return true;
 
         return _this->m_bShowMouse ? (CheckHover(_this, x1, x2, y1, y2)) : true;
@@ -878,7 +942,8 @@ public:
     }
 
     static inline std::string HStr(std::string str) {
-        return HasPadInHands() ? str : str + "PC";
+        //return HasPadInHands() ? str : str + "PC";
+        return str;
     }
 
     static inline void Process(CMenuManager* _this) {
@@ -895,30 +960,33 @@ public:
             else {
                 SetHelpText(1, HStr("FEDS_BA"));
 
+#ifndef LCSFICATION
                 if (HasPadInHands() && !_this->m_bGameNotLoaded)
                     SetHelpText(2, HStr("FEDS_ST"));
+#endif
             }
 
             if (currentInput == INPUT_TAB)
-                SetHelpText(4, "FEDS_AM");
+                SetHelpText(4, HStr("FEDS_AM"));
             else
-                SetHelpText(4, "FEDSAS4");
+                SetHelpText(4, HStr("FEDSAS4"));
             break;
         case TAB_STA:
             SetHelpText(0, HStr("FEDS_ST"));
-            SetHelpText(1, "FEDS_AM");
+            SetHelpText(1, HStr("FEDS_AM"));
 
-            SetHelpText(3, "FEDSSC1");
-            SetHelpText(4, "FEDSSC2");
+            SetHelpText(3, HStr("FEDSSC1"));
+            SetHelpText(4, HStr("FEDSSC2"));
             break;
         case TAB_BRI:
-            SetHelpText(0, "FEDS_ST");
-            SetHelpText(4, "FEDS_AM");
+            SetHelpText(0, HStr("FEDS_ST"));
+            SetHelpText(4, HStr("FEDS_AM"));
             break;
 #ifdef LCSFICATION
         case TAB_MAP:
             if (currentInput == INPUT_STANDARD) {
                 SetHelpText(0, HStr("FEDS_BA"));
+                SetHelpText(2, HStr("FEDS_LE"));
             }
             else {
                 SetHelpText(0, HStr("FEDS_SE"));
@@ -937,7 +1005,7 @@ public:
             const CMenuScreen& s = aScreens[_this->m_nCurrentMenuPage];
             const CMenuScreen::CMenuEntry& e = s.m_aEntries[_this->m_nCurrentMenuEntry];
 
-            const wchar_t* str = TheText.Get(e.m_EntryName);
+            const wchar_t* str = textLoader.Get(e.m_EntryName);
             float strWidth = CFont::GetStringWidth(str, true) / 2;
             if (_this->m_nPrefsLanguage != 0)
                 strWidth += ScaleX(16.0f);
@@ -1198,7 +1266,7 @@ public:
 
     static inline void DrawSlider(CMenuManager*_this, float x, float y, float progress, int type = 0) {
 #if defined(GTA3) && defined(LCSFICATION)
-        float _x = (x - ScaleX(84.0f));
+        float _x = (x - ScaleX(-24.0f));
         float _y = (y);
         float _w = ScaleX(8.0f);
         float _h = ScaleY(11.0f);
@@ -1287,10 +1355,10 @@ public:
         CFont::SetWrapx(SCREEN_WIDTH);
         CFont::SetDropShadowPosition(2);
         CFont::SetDropColor(CRGBA(0, 0, 0, GetAlpha()));
-        CFont::SetColor(CRGBA(HUD_COLOUR_RED, GetAlpha()));
+        CFont::SetColor(CRGBA(HUD_COLOUR_RED_LC01, GetAlpha()));
         CFont::SetFontStyle(2);
         CFont::SetScale(ScaleX(1.0f), ScaleY(1.8f));
-        CFont::PrintString(ScaleXKeepCentered(26.0f + GetMenuOffsetX()), ScaleY(18.0f), UpperCase(textLoader.Get(tabs.at(currentTab).str)));
+        CFont::PrintString(ScaleX(26.0f + GetMenuOffsetX()), ScaleY(18.0f), UpperCase(textLoader.Get(tabs.at(currentTab).str)));
 #else
         CFont::SetPropOn();
         CFont::SetBackgroundOff();
@@ -1356,7 +1424,7 @@ public:
         CFont::SetColor(CRGBA(HUD_COLOUR_WHITE, GetAlpha(255)));
         CFont::SetFontStyle(0);
 
-        float startx = ScaleXKeepCentered(26.0f + GetMenuOffsetX());
+        float startx = ScaleX(26.0f + GetMenuOffsetX());
         float starty = ScaleY(DEFAULT_SCREEN_HEIGHT - 70.0f);
         spacing += 8.0f;
 #elif GTAVC
@@ -1396,6 +1464,13 @@ public:
         uint32_t i = 0;
         for (auto& it : helpTexts) {
             if (!it.empty()) {
+#if defined(GTA3) && defined(LCSFICATION)
+                CFont::SetScale(ScaleX(0.35f), ScaleY(0.95f));
+              
+                if (CFont::GetStringWidth(it.c_str(), true) > ScaleX(80.0f))
+                    CFont::SetScale(ScaleX(0.2f), ScaleY(0.95f));
+#endif
+
                 CFont::PrintString(x, y, textLoader.Get(it.c_str()));
             }
 
@@ -1410,7 +1485,7 @@ public:
             if (i == 1 || i == 3 || i == 5) {
                 CFont::SetCentreOff();
                 CFont::SetRightJustifyOn();
-                x = ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 40.0f);
+                x = SCREEN_WIDTH - ScaleX(40.0f);
                 y = starty;
             }
 #elif GTAVC
@@ -1451,7 +1526,7 @@ public:
 #endif
 
     static inline void DrawBack(CMenuManager* _this) {
-        //RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)rwFILTERNEAREST);
+        RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)rwFILTERLINEAR);
         RwRenderStateSet(rwRENDERSTATESRCBLEND, (void*)rwBLENDSRCALPHA);
         RwRenderStateSet(rwRENDERSTATEDESTBLEND, (void*)rwBLENDINVSRCALPHA);
         RwRenderStateSet(rwRENDERSTATEFOGENABLE, (void*)FALSE);
@@ -1462,12 +1537,15 @@ public:
         RwRenderStateSet(rwRENDERSTATETEXTUREPERSPECTIVE, (void*)FALSE);
         RwRenderStateSet(rwRENDERSTATESHADEMODE, (void*)rwSHADEMODEFLAT);
 
+#if defined(GTA3) && defined(LCSFICATION)
+#else
         CSprite2d::DrawRect(CRect(-5.0f, -5.0f, SCREEN_WIDTH + 5.0f, SCREEN_HEIGHT + 5.0f), CRGBA(0, 0, 0, 255));
+#endif
 
 #ifdef GTA3
 #ifdef LCSFICATION
-        if (backgroundSprite.m_pTexture)
-            backgroundSprite.Draw(0.0f, 0.0f, SCREEN_WIDTH, SCREEN_HEIGHT, CRGBA(255, 255, 255, 255));
+        //if (backgroundSprite.m_pTexture)
+        //    backgroundSprite.Draw(0.0f, 0.0f, SCREEN_WIDTH, SCREEN_HEIGHT, CRGBA(255, 255, 255, 255));
 #else
         CSprite2d* splash = plugin::CallAndReturn<CSprite2d*, 0x48D550>("splash1"); // LoadSplash
         splash->Draw(0.0f, 0.0f, SCREEN_WIDTH, SCREEN_HEIGHT, CRGBA(50, 50, 50, 255));
@@ -1636,6 +1714,14 @@ public:
                 }
             }
         }
+
+#if defined(GTA3) && defined(LCSFICATION)
+        if (_this->m_nCurrentMenuPage == MENUPAGE_SKIN_SELECT)
+            DrawPlayerSetupScreen(_this);
+
+        if (_this->m_nCurrentMenuPage == MENUPAGE_KEYBOARD_CONTROLS)
+            _this->DrawControllerSetupScreen();
+#endif
 #endif
 
 #ifdef GTAVC
@@ -1717,6 +1803,122 @@ public:
         return true;
     }
 
+    static inline float GetTotalTabsWidth(CMenuManager* _this, int32_t start) {
+        float spacing = ScaleX(28.0f);
+        float w = -spacing;
+
+        int32_t count = 0;
+        for (int32_t i = start; i < tabs.size(); i++) {
+            if (!IsTabAvailable(_this, i))
+                continue;
+
+            if (count > 3)
+                break;
+
+            auto& tab = tabs[i];
+            w += CFont::GetStringWidth(textLoader.Get(tab.str), false);
+            w += spacing;
+            count++;
+        }
+
+        return w;
+    }
+
+    static inline void DrawOneTab(CMenuManager* _this, int32_t i, float x, float y, const plugin::char_t* str) {
+        const float strWidth = CFont::GetStringWidth(str, false);
+
+#if defined(GTA3) && defined(GTA3_MENU_MAP)
+        if (menuMap) {
+            if (i == TAB_MAP) {
+                wchar_t* strBuff = LowerCase((wchar_t*)str);
+                strBuff[0] = GetUpperCase(str[0]);
+                str = strBuff;
+            }
+        }
+#endif
+
+#ifdef GTAVC 
+        if (i == currentTab && currentInput == INPUT_TAB)
+            UpdateItemPoly(_this, x + strWidth / 2, y + ScaleY(10.0f), ScaleX(4.0f) + strWidth / 2, ScaleY(18.0f));
+#endif
+
+        RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)rwFILTERNEAREST);
+        RwRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, (void*)TRUE);
+
+        CRect rect = {};
+        rect.left = x + ScaleX(-4.0f);
+        rect.top = y + ScaleY(-3.5f);
+        rect.right = rect.left + ScaleX(130.0f);
+        rect.bottom = rect.top + ScaleY(36.5f);
+
+        CRGBA c = {};
+#ifdef GTA3
+#ifdef LCSFICATION
+        c = CRGBA(HUD_COLOUR_ORANGELIGHT, GetAlpha());
+#else
+        c = CRGBA(0, 0, 0, GetAlpha());
+#endif
+#elif GTAVC
+        c = CRGBA(225, 225, 225, GetAlpha());
+#elif GTASA
+        c = CRGBA(HUD_COLOUR_ORANGE, GetAlpha());
+#endif
+
+#if defined(GTA3) && !defined(LCSFICATION)
+        if (i == currentTab)
+            _this->m_aFrontEndSprites[FE2_TABACTIVE].Draw(rect, CRGBA(255, 255, 255, GetAlpha()));
+#endif
+
+#if defined(GTA3) && !defined(LCSFICATION)
+        if (currentInput != INPUT_STANDARD || i == currentTab)
+#endif 
+        {
+#if defined(GTA3) && !defined(LCSFICATION)
+            rect.left = x + ScaleX(-4.0f);
+            rect.top = y + ScaleY(-3.0f);
+            rect.right = rect.left + ScaleX(64.0f);
+            rect.bottom = rect.top + ScaleY(22.0f);
+#else
+            rect.left = x;
+            rect.top = y + ScaleY(-3.0f);
+            rect.right = x + strWidth;
+            rect.bottom = rect.top + ScaleY(22.0f);
+#endif
+
+            //CSprite2d::DrawRect(rect, CRGBA(255, 255, 255, 255));
+            uint8_t hover = CheckHover(_this, rect);
+
+#if defined(GTA3) && defined(LCSFICATION)
+            if (currentTab == i)
+                c = CRGBA(HUD_COLOUR_RED_LC01, GetAlpha());
+#endif
+
+#ifdef GTASA
+            if (currentTab == i)
+                c = CRGBA(HUD_COLOUR_WHITE, GetAlpha());
+#endif
+
+            if (hover && currentTab != i) {
+#ifdef GTA3
+                c = CRGBA(HUD_COLOUR_GREYLIGHT, GetAlpha());
+#elif GTAVC
+                c = CRGBA(HUD_COLOUR_GREENLIGHT, GetAlpha());
+#elif GTASA
+                c = CRGBA(HUD_COLOUR_ORANGELIGHT, GetAlpha());
+#endif
+
+                if (hover == 2) {
+                    SwitchTab(_this, i);
+                }
+            }
+
+            CFont::SetDropColor(CRGBA(0, 0, 0, GetAlpha()));
+            CFont::SetColor(c);
+
+            CFont::PrintString(x, y, str);
+        }
+    }
+
     static inline void DrawFront(CMenuManager* _this) {
         if (timeToWaitBeforeStateChange == -1)
             return;
@@ -1729,8 +1931,8 @@ public:
             UpdateText(_this);
             previousLanguage = _this->m_nPrefsLanguage;
         }
- 
-        //RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)rwFILTERNEAREST);
+
+        RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)rwFILTERLINEAR);
         RwRenderStateSet(rwRENDERSTATESRCBLEND, (void*)rwBLENDSRCALPHA);
         RwRenderStateSet(rwRENDERSTATEDESTBLEND, (void*)rwBLENDINVSRCALPHA);
         RwRenderStateSet(rwRENDERSTATEFOGENABLE, (void*)FALSE);
@@ -1743,7 +1945,7 @@ public:
 
         DrawHelpText(_this);
 
-#if GTASA
+#ifdef GTASA
         if ((_this->m_nCurrentMenuPage == MENUPAGE_MAP || _this->m_nCurrentMenuPage == MENUPAGE_GALLERY) && currentInput == INPUT_STANDARD)
             return;
 #endif
@@ -1756,6 +1958,9 @@ public:
         if (_this->m_nCurrentMenuPage == MENUPAGE_MAP && currentInput == INPUT_STANDARD)
             return;
 #endif
+
+        if (_this->m_nCurrentMenuPage == MENUPAGE_KEYBOARD_CONTROLS)
+            return;
 
         if (saveMenuActive)
             return;
@@ -1778,206 +1983,72 @@ public:
 #elif defined GTA3 && defined(LCSFICATION)
         CFont::SetDropShadowPosition(2);
         CFont::SetRightJustifyOff();
-        CFont::SetCentreOn();
+        CFont::SetCentreOff();
         CFont::SetFontStyle(2);
         CFont::SetScale(ScaleX(0.5f), ScaleY(1.0f));
 
         switch (_this->m_nPrefsLanguage) {
-        case 1:
-        case 2:
-        case 3:
-        case 4:
-            CFont::SetScale(ScaleX(0.5f) * 0.8f, ScaleY(1.0f));
-            break;
+            case 1:
+            case 2:
+            case 3:
+            case 4:
+                CFont::SetScale(ScaleX(0.5f) * 0.8f, ScaleY(1.0f));
+                break;
         }
 #elif GTAVC
         CFont::SetDropShadowPosition(2);
         CFont::SetRightJustifyOff();
-        CFont::SetCentreOn();
+        CFont::SetCentreOff();
         CFont::SetFontStyle(2);
         CFont::SetScale(ScaleX(0.64f), ScaleY(1.0f));
 
         switch (_this->m_nPrefsLanguage) {
-        case 1:
-        case 2:
-        case 3:
-        case 4:
-            CFont::SetScale(ScaleX(0.64f) * 0.8f, ScaleY(1.0f));
-            break;
+            case 1:
+            case 2:
+            case 3:
+            case 4:
+                CFont::SetScale(ScaleX(0.64f) * 0.8f, ScaleY(1.0f));
+                break;
         }
 #elif GTASA
         CFont::SetEdge(0);
         CFont::SetDropShadowPosition(2);
-        CFont::SetOrientation(ALIGN_CENTER);
+        CFont::SetOrientation(ALIGN_LEFT);
         CFont::SetFontStyle(FONT_PRICEDOWN);
         CFont::SetScale(ScaleX(0.5f), ScaleY(1.0f));
         CFont::SetScaleForCurrentlanguage(ScaleX(0.5f), ScaleY(1.0f));
 #endif
 
-        int32_t i = 0;
-        int32_t j = 0;
-        CRGBA c = {};
-        float it_x = 0.0f;
-        float it_y = 0.0f;
+        float totalWidth = GetTotalTabsWidth(_this, 0);
+        float startX = (SCREEN_WIDTH - totalWidth) / 2;
+        float currentX = startX;
+        float spacing = ScaleX(28.0f);
+        float y = tabs[0].y;
 
-        for (auto& it : tabs) {
-#if defined(GTA3) || defined(GTAVC)
-            const wchar_t* str = textLoader.Get(tabs.at(i).str);
-#elif GTASA
-            const char* str = textLoader.Get(tabs.at(i).str);
-#endif
-            const float strWidth = CFont::GetStringWidth(str, true
-#ifdef GTASA
-                , false
-#endif
-            );
-#if defined(GTASA) || defined(GTAVC) || (defined(GTA3) && defined(LCSFICATION))
-            int numItems = 4;
-            float spacing = -16.0f;
-
-            if (_this->m_nPrefsLanguage != 0) {
-                spacing = -82.0f;
-#ifdef GTASA
-                switch (_this->m_nPrefsLanguage) {
-                case 3:
-                    if (i == TAB_STA)
-                        spacing += 32.0f;
-                    break;
-                case 4:
-                    if (i == TAB_STA)
-                        spacing += 14.0f;
-                    break;
-                }
-#endif
-            }
-
-            const float canvas = ((DEFAULT_SCREEN_WIDTH / 2) + spacing);
-#endif
-
-#if defined(GTA3) && defined(GTA3_MENU_MAP)
-            if (menuMap) {
-                if (i == TAB_MAP) {
-                    wchar_t* strBuff = LowerCase((wchar_t*)str);
-                    strBuff[0] = GetUpperCase(str[0]);
-                    str = strBuff;
-                }
-            }
-#endif
-
-            if (!IsTabAvailable(_this, i)) {
-                i++;
-                if (j > 0 && j > i)
-                    j--;
+        int32_t count = 0;
+        for (int32_t i = 0; i < tabs.size(); i++) {
+            if (!IsTabAvailable(_this, i))
                 continue;
-            }
 
-            it_x = ScaleXKeepCentered(tabs.at(j).x);
-            it_y = ScaleY(tabs.at(j).y);
-
-#if defined(GTASA) || defined(GTAVC) || (defined(GTA3) && defined(LCSFICATION))
-            if (_this->m_bGameNotLoaded || _this->m_nPrefsLanguage != 0) {
-                int32_t k = j;
-                if (j > numItems)
-                    j -= numItems + 1;
-                it_x = SCREEN_WIDTH / 2;
-                it_x -= ScaleX(canvas / 2);
-                it_x += ScaleX((canvas / numItems) * j);
-                j = k;
-            }
-
-#if defined(GTAVC) || (defined(GTA3) && defined(LCSFICATION))
-            if (!_this->m_bGameNotLoaded && _this->m_nPrefsLanguage != 0) {
-                if (i > 3)
-                    it_x += ScaleX(42.0f);
-                else
-                    it_x += ScaleX(-16.0f);
-            }
-#endif
-#endif
-
-#ifdef GTAVC 
-            if (i == currentTab && currentInput == INPUT_TAB)
-                UpdateItemPoly(_this, it_x, it_y + ScaleY(10.0f), ScaleX(4.0f) + strWidth / 2, ScaleY(18.0f));
-#endif
-
-            it_x += ScaleX(GetMenuOffsetX());
-
-            //RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)rwFILTERNEAREST);
-            RwRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, (void*)TRUE);
-
-            CRect rect;
-            rect.left = it_x + ScaleX(-4.0f);
-            rect.top = it_y + ScaleY(-3.5f);
-            rect.right = rect.left + ScaleX(130.0f);
-            rect.bottom = rect.top + ScaleY(36.5f);
-
-#ifdef GTA3
-#ifdef LCSFICATION
-            c = CRGBA(HUD_COLOUR_ORANGELIGHT, GetAlpha());
+#if defined(GTA3) && !defined(LCSFICATION)
+            currentX = ScaleXKeepCentered(tabs[count].x);
+            y = tabs[count].y;
 #else
-            c = CRGBA(0, 0, 0, GetAlpha());
-#endif
-#elif GTAVC
-            c = CRGBA(225, 225, 225, GetAlpha());
-#elif GTASA
-            c = CRGBA(HUD_COLOUR_ORANGE, GetAlpha());
-#endif
-
-#if defined(GTA3) && !defined(LCSFICATION)
-            if (i == currentTab)
-                _this->m_aFrontEndSprites[FE2_TABACTIVE].Draw(rect, CRGBA(255, 255, 255, GetAlpha()));
-#endif
-
-#if defined(GTA3) && !defined(LCSFICATION)
-            if (currentInput != INPUT_STANDARD || i == currentTab)
-#endif 
-            {
-#if defined(GTA3) && !defined(LCSFICATION)
-                rect.left = it_x + ScaleX(-4.0f);
-                rect.top = it_y + ScaleY(-3.0f);
-                rect.right = rect.left + ScaleX(64.0f);
-                rect.bottom = rect.top + ScaleY(22.0f);
-#else
-                rect.left = it_x - strWidth / 2;
-                rect.top = it_y + ScaleY(-3.0f);
-                rect.right = it_x + strWidth / 2;
-                rect.bottom = rect.top + ScaleY(22.0f);
-#endif
-            
-                //CSprite2d::DrawRect(rect, CRGBA(255, 255, 255, 255));
-                uint8_t hover = CheckHover(_this, rect);
-
-#if defined(GTA3) && defined(LCSFICATION)
-                if (currentTab == i)
-                    c = CRGBA(HUD_COLOUR_RED, GetAlpha());
-#endif
-
-#ifdef GTASA
-                if (currentTab == i)
-                    c = CRGBA(HUD_COLOUR_WHITE, GetAlpha());
-#endif
-
-                if (hover && currentTab != i) {
-#ifdef GTA3
-                    c = CRGBA(HUD_COLOUR_GREYLIGHT, GetAlpha());
-#elif GTAVC
-                    c = CRGBA(HUD_COLOUR_GREENLIGHT, GetAlpha());
-#elif GTASA
-                    c = CRGBA(HUD_COLOUR_ORANGELIGHT, GetAlpha());
-#endif
-
-                    if (hover == 2) {
-                        SwitchTab(_this, i);
-                    }
-                }
-
-                CFont::SetDropColor(CRGBA(0, 0, 0, GetAlpha()));
-                CFont::SetColor(c);
-
-                CFont::PrintString(it_x, it_y, str);
+            if (count == 4) { // second row
+                totalWidth = GetTotalTabsWidth(_this, i);
+                startX = (SCREEN_WIDTH - totalWidth) / 2;
+                currentX = startX;
+                y = tabs[4].y;
             }
-            i++;
-            j++;
+#endif
+
+            const plugin::char_t* str = textLoader.Get(tabs.at(i).str);
+            const float strWidth = CFont::GetStringWidth(str, false);
+            DrawOneTab(_this, i, currentX, ScaleY(y), str);
+#if !defined(GTA3) || defined(LCSFICATION)
+            currentX += strWidth + spacing;
+#endif
+            count++;
         }
     }
 
@@ -1987,6 +2058,11 @@ public:
         if (h) {
             menuMap = true;
         }
+#elif defined(GTASA)
+            const HMODULE h = ModuleList().GetByPrefix(L"modloader");
+            if (h) {
+                modLoader = true;
+            }
 #endif
 
         GInput_Load(&gInputPad);
@@ -2100,6 +2176,26 @@ public:
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_nPreviousPage[1] = MENUPAGE_DISPLAY_SETTINGS;
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_nParentEntry[0] = 8;
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_nParentEntry[1] = 8;
+
+#ifdef LCSFICATION
+        aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[1].m_nAction = MENUACTION_NOTHING;
+        aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[1].m_EntryName[0] = '\0';
+
+        aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[2].m_nAction = MENUACTION_NOTHING;
+        aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[2].m_EntryName[0] = '\0';
+
+        aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[3].m_nAction = MENUACTION_NOTHING;
+        aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[3].m_EntryName[0] = '\0';
+
+        aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[4].m_nAction = MENUACTION_NOTHING;
+        aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[4].m_EntryName[0] = '\0';
+
+        aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[5].m_nAction = MENUACTION_NOTHING;
+        aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[5].m_EntryName[0] = '\0';
+
+        aScreens[MENUPAGE_SKIN_SELECT].m_aEntries[0].m_nAction = MENUACTION_NOTHING;
+        aScreens[MENUPAGE_SKIN_SELECT].m_aEntries[0].m_EntryName[0] = '\0';
+#endif
 #elif GTAVC
         strcpy(aScreens[MENUPAGE_DISPLAY_SETTINGS].m_aEntries[9].m_EntryName, "FEH_LAN");
         aScreens[MENUPAGE_DISPLAY_SETTINGS].m_aEntries[9].m_nAction = MENUACTION_CHANGEMENU;
@@ -2204,6 +2300,10 @@ public:
         if (initialised)
             return;
 
+#ifdef GTASA
+        aScreens = plugin::patch::Get<CMenuScreen*>(0x576B37 + 1);
+#endif
+
         CheckForExternalScripts();
 
 #if defined(GTA3) && defined(GTA3_MENU_MAP)
@@ -2222,7 +2322,33 @@ public:
             skipHighSprite.SetTexture("SkipHigh");
             CTxdStore::PopCurrentTxd();
         }
+
+        if (modLoader && textLoader.Get("ML_F0HH")[0] != '\0') {
+            aScreens[MENUPAGE_NEW_GAME].m_aEntries[4].m_nAction = MENUACTION_CHANGEMENU;
+            strcpy(aScreens[MENUPAGE_NEW_GAME].m_aEntries[4].m_EntryName, "ML_F0HH");
+            aScreens[MENUPAGE_NEW_GAME].m_aEntries[4].m_nSaveSlot = 0;
+            aScreens[MENUPAGE_NEW_GAME].m_aEntries[4].m_nTargetMenu = MENUPAGE_MODLOADER;
+            aScreens[MENUPAGE_NEW_GAME].m_aEntries[4].m_nX = 0;
+            aScreens[MENUPAGE_NEW_GAME].m_aEntries[4].m_nY = 0;
+            aScreens[MENUPAGE_NEW_GAME].m_aEntries[4].m_nAlign = 1;
+        }
 #endif
+
+        const char* pcbtns_name = PLUGIN_PATH("SkyUI\\txd\\pcbtns.txd");
+        if (plugin::FileExists(pcbtns_name)) {
+            int32_t pcbtns = CTxdStore::AddTxdSlot("pcbtns");
+            CTxdStore::LoadTxd(pcbtns, pcbtns_name);
+            CTxdStore::AddRef(pcbtns);
+            CTxdStore::PushCurrentTxd();
+            CTxdStore::SetCurrentTxd(pcbtns);
+
+            int32_t i = 0;
+            for (auto& it : pcbtnsSprites) {
+                it.SetTexture((char*)pcbtnsSpritesNames[i]);
+                i++;
+            }
+            CTxdStore::PopCurrentTxd();
+        }
 
         initialised = true;
     }
@@ -2292,6 +2418,12 @@ public:
 #ifdef GTASA
         _this->m_bStandardInput = false;
         scanGalleryPhotos = true;
+#endif
+
+#if defined(GTA3) && defined(LCSFICATION)
+        currPlayerSkinPage = 0;
+        currPlayerSkin = 0;
+        playerSkinAnim = false;
 #endif
     }
 
@@ -2479,6 +2611,7 @@ public:
 #endif
 
 #if defined(GTA3) && defined(LCSFICATION)
+#ifdef LCSFICATION
     static void SetLCSFontStyle(bool white = false) {
         CFont::SetScale(ScaleX(LCS_MENU_SCALE_X * 0.9f), ScaleY(LCS_MENU_SCALE_Y * 0.9f));
         CFont::SetFontStyle(0);
@@ -2490,6 +2623,450 @@ public:
             CFont::SetColor(CRGBA(HUD_COLOUR_LCS_MENU, a));
     }
 #endif
+
+    static inline std::vector<CPlayerSkinData> playerSkins = {};
+    static inline float playerRotation = -25.0f;
+    static inline float playerRotationLerp = -25.0f;
+    static inline bool playerSkinAnim = false;
+    static inline CAnimBlendAssociation* prevMoveAssoc = nullptr;
+
+    static std::string RemoveEx(std::string str) {
+        size_t pos = str.find_last_of('.');
+        if (pos != std::string::npos)
+            str = str.substr(0, pos);
+        return str;
+    }
+
+    static void ClearSkins() {
+        playerSkins = {};
+    }
+
+    static void PushSkin(uint32_t id, const char* name, const char* displayName, const char* date) {
+        CPlayerSkinData skin;
+        skin.m_nSkinId = id;
+
+        if (displayName)
+            strcpy(skin.m_aSkinNameDisplayed, displayName);
+
+        if (name)
+            strcpy(skin.m_aSkinNameOriginal, name);
+
+        if (date)
+            strcpy(skin.m_aDateInfo, date);
+
+        playerSkins.push_back(skin);
+    }
+
+    static void ScanPlayerSkins() {
+        WIN32_FIND_DATA findFileData;
+        HANDLE hFind = FindFirstFile("skins\\*.bmp", &findFileData);
+        SYSTEMTIME systemTime;
+
+        int32_t i = 1;
+        if (hFind != INVALID_HANDLE_VALUE) {
+            do {
+                char date[255];
+                FileTimeToSystemTime(&findFileData.ftLastWriteTime, &systemTime);
+                GetDateFormat(LOCALE_USER_DEFAULT, DATE_SHORTDATE, &systemTime, 0, date, 255);
+
+                PushSkin(i, findFileData.cFileName, RemoveEx(findFileData.cFileName).c_str(), date);
+
+                i++;
+            } while (FindNextFile(hFind, &findFileData) != 0);
+
+            FindClose(hFind);
+        }
+    }
+
+    static void ApplySkin(CMenuManager* _this, CPlayerSkinData* skin) {
+        _this->m_pSelectedSkin = skin;
+        strcpy(_this->m_nPrefsSkinFile, skin->m_aSkinNameDisplayed);
+        CWorld::Players[0].SetPlayerSkin(_this->m_nPrefsSkinFile);
+        _this->SaveSettings();
+    }
+
+#define DEFAULT_SKIN_NAME "$$\"\""
+#define NUM_VISIBLE_ITEMS (14)
+
+    static inline int32_t currPlayerSkinPage = 0;
+    static inline int32_t currPlayerSkin = 0;
+
+    static int32_t GetLastSkinOnCurrentPage() {
+        int32_t last = NUM_VISIBLE_ITEMS * currPlayerSkinPage;
+        const uint32_t lastSkin = (uint32_t)playerSkins.size();
+
+        for (uint32_t i = NUM_VISIBLE_ITEMS * currPlayerSkinPage; i < lastSkin; i++) {
+            if (last > NUM_VISIBLE_ITEMS * (currPlayerSkinPage + 1))
+                break;
+
+            if (i > lastSkin)
+                break;
+
+            last++;
+        }
+
+        return last - 1;
+    }
+
+    static int32_t GetLastPage() {
+        int32_t items = 0;
+        int32_t pages = 0;
+        for (auto& it : playerSkins) {
+            if (items > NUM_VISIBLE_ITEMS) {
+                items = 0;
+                pages++;
+            }
+
+            items++;
+        }
+
+        return pages;
+    }
+
+    static RpAtomic* GetAnimHierarchyCallback(RpAtomic* atomic, void* data) {
+        *(RpHAnimHierarchy**)data = RpSkinAtomicGetHAnimHierarchy(atomic);
+        return nullptr;
+    }
+
+    static inline RpHAnimHierarchy* GetAnimHierarchyFromSkinClump(RpClump* clump) {
+        RpHAnimHierarchy* hier = nullptr;
+        RpClumpForAllAtomics(clump, GetAnimHierarchyCallback, &hier);
+        return hier;
+    }
+
+    static inline float playerZoom = 1.0f;
+    static inline float playerZoomLerp = 1.0f;
+
+    static void DrawPlayerSetupScreen(CMenuManager* _this) {
+        RwRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, (void*)TRUE);
+        RwRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)TRUE);
+        RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)TRUE);
+        RwRenderStateSet(rwRENDERSTATESHADEMODE, (void*)rwSHADEMODEGOURAUD);
+
+        if (!_this->m_bSkinsFound) {
+            ClearSkins();
+            PushSkin(0, UnicodeToAscii((wchar_t*)textLoader.Get("FET_DSN")), RemoveEx(UnicodeToAscii((wchar_t*)textLoader.Get("FET_DSN"))).c_str(), nullptr);
+
+            ScanPlayerSkins();
+
+            // Fix default saved name
+            if (!strcmp(_this->m_nPrefsSkinFile, DEFAULT_SKIN_NAME))
+                strcpy(_this->m_nPrefsSkinFile, playerSkins[0].m_aSkinNameDisplayed);
+
+            _this->m_bSkinsFound = true;
+        }
+
+        float x = 206.0f;
+        float y = 96.0f;
+
+        // Render menu
+        CFont::SetPropOn();
+        CFont::SetBackgroundOff();
+        CFont::SetCentreOff();
+        CFont::SetRightJustifyOff();
+        CFont::SetWrapx(SCREEN_WIDTH);
+        CFont::SetDropShadowPosition(2);
+        CFont::SetDropColor(CRGBA(0, 0, 0, GetAlpha()));
+        CFont::SetColor(CRGBA(HUD_COLOUR_RED_LC01, GetAlpha()));
+        CFont::SetFontStyle(2);
+        CFont::SetScale(ScaleX(0.4f), ScaleY(0.8f));
+        CFont::PrintString(ScaleX(x + GetMenuOffsetX()), ScaleY(y), textLoader.Get("FES_SKN"));
+
+        CFont::SetRightJustifyOn();
+        CFont::PrintString(ScaleX(x + 256.0f + GetMenuOffsetX()), ScaleY(y), textLoader.Get("FES_DAT"));
+
+        CFont::SetScale(ScaleX(0.3f), ScaleY(0.6f));
+        CFont::SetFontStyle(0);
+        CFont::SetDropShadowPosition(0);
+
+        CPad* pad = CPad::GetPad(0);
+        const int32_t lastPage = GetLastPage();
+        const int32_t lastSkin = (uint32_t)playerSkins.size();
+        const int32_t lastSkinForThisPage = GetLastSkinOnCurrentPage();
+
+        bool left = pad->NewKeyState.left && !pad->OldKeyState.left;
+        bool right = pad->NewKeyState.right && !pad->OldKeyState.right;
+        bool up = pad->NewKeyState.up && !pad->OldKeyState.up;
+        bool down = pad->NewKeyState.down && !pad->OldKeyState.down;
+
+        bool zoomIn = pad->NewMouseControllerState.wheelUp;
+        bool zoomOut = pad->NewMouseControllerState.wheelDown;
+
+        bool enter = (pad->NewKeyState.extenter && !pad->OldKeyState.extenter) || (pad->NewKeyState.enter && !pad->OldKeyState.enter);
+
+        float rot = 0.0f;
+
+        if (!playerSkins.empty()) {
+            if (currentInput == INPUT_STANDARD) {
+                if (HasPadInHands()) {
+                    enter |= pad->NewState.ButtonCross && !pad->OldState.ButtonCross;
+                    left |= pad->NewState.DPadLeft && !pad->OldState.DPadLeft;
+                    right |= pad->NewState.DPadRight && !pad->OldState.DPadRight;
+                    up |= pad->NewState.DPadUp && !pad->OldState.DPadUp;
+                    down |= pad->NewState.DPadDown && !pad->OldState.DPadDown;
+                    zoomIn |= pad->NewState.RightShoulder1;
+                    zoomOut |= pad->NewState.LeftShoulder1;
+
+                    rot = pad->NewState.RightStickX / 14.0f;
+                }
+
+                if (enter) {
+                    auto& skin = playerSkins[currPlayerSkin];
+                    ApplySkin(_this, &skin);
+                }
+
+                if (lastPage > 0) {
+                    if (left) {
+                        currPlayerSkinPage--;
+                        currPlayerSkin = 0;
+                    }
+                    else if (right) {
+                        currPlayerSkinPage++;
+                        currPlayerSkin = 0;
+                    }
+                }
+
+                if (up)
+                    currPlayerSkin--;
+                else if (down)
+                    currPlayerSkin++;
+
+                if (currPlayerSkinPage < 0)
+                    currPlayerSkinPage = 0;
+                else if (currPlayerSkinPage > lastPage)
+                    currPlayerSkinPage = lastPage;
+
+                if (currPlayerSkin < NUM_VISIBLE_ITEMS * currPlayerSkinPage)
+                    currPlayerSkin = NUM_VISIBLE_ITEMS * currPlayerSkinPage;
+                else if (currPlayerSkin > lastSkinForThisPage)
+                    currPlayerSkin = lastSkinForThisPage;
+
+                if (zoomOut) {
+                    playerZoom += 0.1f;
+                }
+                else if (zoomIn) {
+                    playerZoom -= 0.1f;
+                }
+
+                playerZoom = CLAMP(playerZoom, 0.3f, 1.0f);
+
+                static uint32_t prevTime = 0;
+                const float f = (CTimer::m_snTimeInMillisecondsPauseMode - prevTime) * 0.02f;
+                playerZoomLerp = std::lerp(playerZoomLerp, playerZoom, f * 0.5f);
+                prevTime = CTimer::m_snTimeInMillisecondsPauseMode;
+
+            }
+
+            uint32_t renderedItems = 0;
+            CRGBA col = { HUD_COLOUR_LCS_MENU, (uint8_t)GetAlpha() };
+
+            for (uint32_t i = NUM_VISIBLE_ITEMS * currPlayerSkinPage; i < lastSkin; i++) {
+                if (renderedItems > NUM_VISIBLE_ITEMS)
+                    break;
+
+                if (i > lastSkin)
+                    break;
+
+                auto& skin = playerSkins[i];
+                CFont::SetRightJustifyOff();
+                float nexty = 12.0f * renderedItems;
+
+                if (_this->m_bShowMouse &&
+                    _this->CheckHover(ScaleX(x + GetMenuOffsetX()), ScaleX(x + 256.0f + GetMenuOffsetX()), ScaleY(y + 22.0f + nexty), ScaleY(y + 22.0f + nexty + 12.0f))) {
+                    
+                    if (currPlayerSkin != i)
+                        currPlayerSkin = i;
+
+                    if (pad->NewMouseControllerState.lmb && !pad->OldMouseControllerState.lmb) {
+                        ApplySkin(_this, &skin);
+                    }
+                }
+
+                CFont::SetColor(CRGBA(HUD_COLOUR_LCS_MENU, GetAlpha()));
+
+                if (currentInput == INPUT_STANDARD) {
+                    if (!strcmp(skin.m_aSkinNameDisplayed, _this->m_nPrefsSkinFile))
+                        CFont::SetColor(CRGBA(HUD_COLOUR_YELLOW_LIGHT, GetAlpha()));
+
+                    if (i == currPlayerSkin)
+                        CFont::SetColor(CRGBA(HUD_COLOUR_WHITE, GetAlpha()));
+                }
+
+                CFont::PrintString(ScaleX(x + GetMenuOffsetX()), ScaleY(y + 22.0f + nexty), skin.m_aSkinNameDisplayed);
+
+                CFont::SetRightJustifyOn();
+                CFont::PrintString(ScaleX(x + 256.0f + GetMenuOffsetX()), ScaleY(y + 22.0f + nexty), skin.m_aDateInfo);
+
+                renderedItems++;
+            }
+
+            CRGBA c = { 255, 255, 255, 255 };
+            CRect rect;
+            rect.left = ScaleX(x + GetMenuOffsetX());
+            rect.top = ScaleY(y + 20.0f);
+
+            rect.right = ScaleX(x + 256.0f + GetMenuOffsetX());
+            rect.bottom = ScaleY(y + 20.0f + 0.5f);
+
+            RwRenderStateSet(rwRENDERSTATETEXTURERASTER, 0);
+            CSprite2d::SetVertices(rect, c, c, c, c, 0);
+            RwIm2DRenderPrimitive(rwPRIMTYPETRIFAN, CSprite2d::maVertices, 4);
+
+            rect.left = ScaleX(x + GetMenuOffsetX());
+            rect.top = ScaleY(y + 38.0f + 12.0f * NUM_VISIBLE_ITEMS);
+
+            rect.right = ScaleX(x + 256.0f + GetMenuOffsetX());
+            rect.bottom = ScaleY(y + 38.5f + 12.0f * NUM_VISIBLE_ITEMS);
+
+            RwRenderStateSet(rwRENDERSTATETEXTURERASTER, 0);
+            CSprite2d::SetVertices(rect, c, c, c, c, 0);
+            RwIm2DRenderPrimitive(rwPRIMTYPETRIFAN, CSprite2d::maVertices, 4);
+
+            CFont::SetColor(CRGBA(HUD_COLOUR_LCS_MENU, GetAlpha()));
+
+            char buff[256];
+            sprintf(buff, "Current: %s", _this->m_nPrefsSkinFile);
+            CFont::SetRightJustifyOff();
+            CFont::PrintString(ScaleX(x + GetMenuOffsetX()), ScaleY(y + 42.0f + 12.0f * NUM_VISIBLE_ITEMS), buff);
+
+            sprintf(buff, "%d/%d", currPlayerSkinPage + 1, lastPage + 1);
+            CFont::SetRightJustifyOn();
+            CFont::PrintString(ScaleX(x + 256.0f + GetMenuOffsetX()), ScaleY(y + 42.0f + 12.0f * NUM_VISIBLE_ITEMS), buff);
+
+            RwRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)FALSE);
+            RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)FALSE);
+
+            RwRenderStateSet(rwRENDERSTATESRCBLEND, (void*)rwBLENDONE);
+            RwRenderStateSet(rwRENDERSTATEDESTBLEND, (void*)rwBLENDONE);
+
+            CRGBA ssc = CRGBA(40, 40, 50, 255);
+            skinSelSprite.Draw(CRect((SCREEN_WIDTH / 2) + ScaleX(38.0f - ((1.0f - playerZoomLerp) * 128.0f)), ScaleY(4.0f), (SCREEN_WIDTH / 2) + ScaleX(38.0f + 160.0f + ((1.0f - playerZoomLerp) * 128.0f)), SCREEN_HEIGHT - ScaleY(96.5f)), ssc);
+
+            RwRenderStateSet(rwRENDERSTATESRCBLEND, (void*)rwBLENDSRCALPHA);
+            RwRenderStateSet(rwRENDERSTATEDESTBLEND, (void*)rwBLENDINVSRCALPHA);
+        }
+
+        RwRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)TRUE);
+        RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)TRUE);
+        RwRenderStateSet(rwRENDERSTATESHADEMODE, (void*)rwSHADEMODEGOURAUD);
+
+        D3DVIEWPORT8 previousViewport = {};
+        D3DVIEWPORT8 newViewport = {};
+        newViewport.X = 0.0f; // (SCREEN_WIDTH / 2) + ScaleX(38.0f);
+        newViewport.Y = ScaleY(4.0f), (SCREEN_WIDTH / 2) + ScaleX(198.0f);
+        newViewport.Width = SCREEN_WIDTH;// (SCREEN_WIDTH / 2) + ScaleX(198.0f);
+        newViewport.Height = SCREEN_HEIGHT - ScaleY(96.5f);
+
+        newViewport.Width -= newViewport.X;
+        newViewport.Height -= newViewport.Y;
+
+        GetD3DDevice<IDirect3DDevice8>()->GetViewport(&previousViewport);
+        GetD3DDevice<IDirect3DDevice8>()->SetViewport(&newViewport);
+
+        // Render player
+        RwV3d pos = { -1.15f, -0.05f, 8.0f };
+        pos.x *= playerZoomLerp;
+        pos.y -= 1.0f - max(playerZoomLerp, 0.43f);
+        pos.z *= playerZoomLerp;
+
+        const RwV3d axis1 = { 1.0f, 0.0f, 0.0f };
+        const RwV3d axis2 = { 0.0f, 0.0f, 1.0f };
+        const RwV3d scale = { 0.7f, 1.0f, 1.0f };
+
+        static uint32_t prevTime = 0;
+        
+        // Input   
+        if (currentInput == INPUT_STANDARD 
+            &&  ((CPad::GetPad(0)->NewMouseControllerState.lmb
+                && _this->m_nMousePosX >= (SCREEN_WIDTH / 2) + ScaleX(48.0f) && _this->m_nMousePosX <= (SCREEN_WIDTH / 2) + ScaleX(64.0f + 128.0f))
+            || rot))
+            playerRotation += (_this->m_nMousePosX - _this->m_nMouseOldPosX) + rot;
+        //else
+        //    playerRotation += (CTimer::m_snTimeInMillisecondsPauseMode - prevTime) * 0.02f;
+        
+        
+        if (playerRotation > 360.0f)
+            playerRotation -= 360.0f;
+
+        const float f = (CTimer::m_snTimeInMillisecondsPauseMode - prevTime) * 0.02f;
+        playerRotationLerp = std::lerp(playerRotationLerp, playerRotation, f * 0.5f);
+        
+        prevTime = CTimer::m_snTimeInMillisecondsPauseMode;
+
+        RpClump* clump = gpPlayerClump;
+
+        // Make anims
+        //CPlayerPed* playa = FindPlayerPed();
+        //
+        //if (currentInput == INPUT_STANDARD) {
+        //    if (playa) {
+        //        clump = playa->m_pRwClump;
+        //
+        //        if (!playerSkinAnim) {
+        //            prevMoveAssoc = RpAnimBlendClumpGetAssociation(clump, 0);
+        //            CAnimBlendAssociation* newMoveAssoc = CAnimManager::AddAnimation(clump, playa->m_nAnimGroupId, 0);
+        //            playerSkinAnim = true;
+        //        }
+        //
+        //        RpAnimBlendClumpUpdateAnimations(clump, 1.0f / 50.0f);
+        //
+        //        RpHAnimHierarchy* hier = GetAnimHierarchyFromSkinClump(clump);
+        //        RpHAnimHierarchyUpdateMatrices(hier);
+        //    }
+        //}
+        //else {
+        //    if (playa) {
+        //        if (playerSkinAnim) {
+        //            clump = playa->m_pRwClump;
+        //
+        //            if (prevMoveAssoc)
+        //                prevMoveAssoc->SetCurrentTime(0.0f);
+        //
+        //            RpAnimBlendClumpUpdateAnimations(clump, 1.0f / 50.0f);
+        //
+        //            RpHAnimHierarchy* hier = GetAnimHierarchyFromSkinClump(clump);
+        //            RpHAnimHierarchyUpdateMatrices(hier);
+        //
+        //            playerSkinAnim = false;
+        //        }
+        //    }
+        //}
+
+        RwFrame* frame = (RwFrame*)clump->object.parent;
+
+        RwFrameTransform(frame, RwFrameGetMatrix(RwCameraGetFrame(Scene.m_pCamera)), rwCOMBINEREPLACE);
+        RwFrameScale(frame, &scale, rwCOMBINEPRECONCAT);
+        RwFrameTranslate(frame, &pos, rwCOMBINEPRECONCAT);
+        RwFrameRotate(frame, &axis1, -90.0f, rwCOMBINEPRECONCAT);
+        RwFrameRotate(frame, &axis2, playerRotationLerp, rwCOMBINEPRECONCAT);
+
+        RwFrameUpdateObjects(frame);
+        
+        RwRGBAReal ambientColor = { 1.0f, 1.0f, 1.0f, 1.0f };
+        SetAmbientColours(&ambientColor);
+        
+        RpClumpRender(clump);
+
+        GetD3DDevice<IDirect3DDevice8>()->SetViewport(&previousViewport);
+    }
+#endif
+
+    static bool isAButton(short chr) {
+        short c = chr + ' ';
+
+        switch (c) {
+        case '<': // left
+            return true;
+        case '>': // right
+            return true;
+        case ';': // up
+            return true;
+        case '=': // down
+            return true;
+        }
+
+        return false;
+    };
 
     SkyUI() {
 #ifdef GTA3
@@ -2526,19 +3103,33 @@ public:
             CFont::Details.m_Color.a = min(CFont::Details.m_Color.a, GetAlpha());
             CFont::Details.m_DropColor.a = min(CFont::Details.m_DropColor.a, GetAlpha());
 
+#if defined(GTA3) && defined(LCSFICATION)
+            float x = ScaleX(64.0f);
+
+            if (CFont::Details.m_bCentre)
+                x = SCREEN_WIDTH / 2;
+
+            CFont::PrintString(x, y, str);
+#else
             float center = 0.0f;
 
             if (CFont::Details.m_bCentre)
                 center = 240.0f;
 
             CFont::PrintString(ScaleXKeepCentered(64.0f + center + GetMenuOffsetX()), y, str);
+#endif
         };
         plugin::patch::RedirectCall(0x47C666, LAMBDA(void, __cdecl, drawLeftString, float, float, wchar_t*));
 
         auto drawRightString = [](float, float y, wchar_t* str) {
             CFont::Details.m_Color.a = min(CFont::Details.m_Color.a, GetAlpha());
             CFont::Details.m_DropColor.a = min(CFont::Details.m_DropColor.a, GetAlpha());
+
+#if defined(GTA3) && defined(LCSFICATION)
+            CFont::PrintString(SCREEN_WIDTH - ScaleX(64.0f + GetMenuOffsetX()), y, str);
+#else
             CFont::PrintString(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 64.0f + GetMenuOffsetX()), y, str);
+#endif
         };
         plugin::patch::RedirectCall(0x47C74C, LAMBDA(void, __cdecl, drawRightString, float, float, wchar_t*));
         plugin::patch::SetChar(0x47DA11 + 6, 255);
@@ -2699,6 +3290,18 @@ public:
             CFont::PrintString(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 110.0f + GetMenuOffsetX()), y, str);
         };
         plugin::patch::RedirectCall(0x49C135, (void(__cdecl*)(float, float, wchar_t*))drawStatRightString);
+
+        auto drawBriefs = [](float, float y, wchar_t* str) {
+            CFont::SetWrapx(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 82.0f + GetMenuOffsetX()));
+            CFont::Details.m_Color.a = min(CFont::Details.m_Color.a, GetAlpha());
+            CFont::Details.m_DropColor.a = min(CFont::Details.m_DropColor.a, GetAlpha());
+
+#if defined(GTA3) && defined(LCSFICATION)
+            SetLCSFontStyle();
+#endif
+            CFont::PrintString(ScaleXKeepCentered(92.0f + GetMenuOffsetX()), y, str);
+        };
+        plugin::patch::RedirectCall(0x49A59F, LAMBDA(void, __cdecl, drawBriefs, float, float, wchar_t*));
         
         // No sliders
         plugin::patch::RedirectJump(0x4A00B8, (void*)0x4A00F1);
@@ -2753,15 +3356,19 @@ public:
         };
 
         onProcess.before += [](CMenuManager* _this) {
+            if (!saveMenuActive && _this->m_bSaveMenuActive) {
+                SwitchTab(_this, TAB_SAV);
+                saveMenuActive = true;
+            }
+
+            if (menuActive || saveMenuActive)
+                Process(_this);
+        };
+
+        onProcess.after += [](CMenuManager* _this) {
             if (_this->m_bMenuActive || _this->m_bSaveMenuActive) {
                 if (!menuActive) {
-                    if (!saveMenuActive && _this->m_bSaveMenuActive) {
-                        SwitchTab(_this, TAB_SAV);
-                        saveMenuActive = true;
-                    }
-
                     Clear(_this, true);
-
                     menuActive = true;
                 }
             }
@@ -2770,9 +3377,6 @@ public:
                 menuActive = false;
                 Clear(_this, false);
             }
-
-            if (menuActive || saveMenuActive) 
-                Process(_this);
         };
 
 
@@ -2869,6 +3473,64 @@ public:
         plugin::patch::SetUChar(0x47B013 + 1, col[0]);
         plugin::patch::SetUChar(0x47B00E + 1, col[1]);
         plugin::patch::SetUChar(0x47B00C + 1, col[2]);
+
+        // redefine controls page
+        // no control header
+        plugin::patch::Nop(0x4813DB, 5);
+
+        // global y
+        plugin::patch::SetFloat(0x5F36D4, 50.0f);
+
+        // rect h
+        plugin::patch::SetFloat(0x5F3968, 118.0f);
+
+        plugin::patch::SetInt(0x481990 + 1, 0x31 + 0x8);
+        plugin::patch::SetInt(0x481997 + 1, 0x36 + 0x8);
+
+        static uint8_t boundcol[] = { HUD_COLOUR_WHITE, 255 };
+        plugin::patch::SetUChar(0x489D02 + 1, boundcol[0]);
+        plugin::patch::SetUChar(0x489D00 + 1, boundcol[1]);
+        plugin::patch::SetUChar(0x489CFE + 1, boundcol[2]);
+
+        plugin::patch::SetUChar(0x489F32 + 1, boundcol[0]);
+        plugin::patch::SetUChar(0x489F30 + 1, boundcol[1]);
+        plugin::patch::SetUChar(0x489F2E + 1, boundcol[2]);
+
+        // rect
+        static uint8_t rectcol[] = { HUD_COLOUR_BLUELIGHT, 0 };
+        plugin::patch::SetUChar(0x481751 + 1, rectcol[0]);
+        plugin::patch::SetUChar(0x48174C + 1, rectcol[1]);
+        plugin::patch::SetUChar(0x48174A + 1, rectcol[2]);
+        plugin::patch::SetUChar(0x48173B + 1, rectcol[3]);
+
+        plugin::patch::Nop(0x489FEB, 5);
+        plugin::patch::Nop(0x48A051, 5);
+        //
+
+        // Setup skin
+        plugin::patch::Nop(0x4876F7, 5);
+        plugin::patch::Nop(0x487D85, 5);
+
+        // global y
+        plugin::patch::SetInt(0x47FB6C + 1, 0x2E + 0x14);
+        plugin::patch::SetInt(0x47FB79 + 4, 0x39 + 0x14);
+        plugin::patch::SetInt(0x47FB81 + 1, 0x2F + 0x14);
+
+        // global w/h
+        static float val = 0.5f;
+        plugin::patch::SetPointer({ 0x48185E + 0x2, 0x48184D + 0x2 }, &val);
+
+        plugin::patch::Nop(0x4809B9, 7);
+        plugin::patch::Nop(0x4809D3, 10);
+        plugin::patch::Nop(0x481010, 5);
+        plugin::patch::Nop(0x47F3E8, 5);
+
+        plugin::patch::Nop(0x47AAFC, 7);
+        plugin::patch::RedirectJump(0x47AAF5, (void*)0x47AB10);
+
+        plugin::patch::SetChar(0x4871FD + 6, -1);
+        plugin::patch::Nop(0x4871D9, 7);
+        plugin::patch::Nop(0x487277, 5);
 #endif
 
 #ifdef GTA3
@@ -2915,7 +3577,7 @@ public:
             int32_t slot = CTxdStore::FindTxdSlot("menu"); 
             if (slot != -1) {
                 CTxdStore::SetCurrentTxd(slot);
-                backgroundSprite.SetTexture("background");
+                skinSelSprite.SetTexture("skinSel");
                 CTxdStore::PopCurrentTxd();
             }
 
@@ -2926,7 +3588,7 @@ public:
             if (!spriteLoaded)
                 return;
 
-            backgroundSprite.Delete();
+            skinSelSprite.Delete();
 
             spriteLoaded = false;
         };
@@ -2974,9 +3636,12 @@ public:
 
 #if defined(GTA3) && defined(LCSFICATION)
         static float& NumberOfChunksLoaded = *(float*)0x9403BC;
+        static const char* prevScreen = nullptr;
         auto drawLoadingScreen = [](const char* str1, const char* str2, const char* splash) {
             if (RsGlobal.quit)
                 return;
+
+            FrontEndMenuManager.LoadAllTextures();
 
             CSprite2d* sprite = LoadSplash(splash);
             if (DoRwStuffStartOfFrame(0, 0, 0, 0, 0, 0, 255)) {
@@ -2986,14 +3651,124 @@ public:
                 DefinedState();
 
                 sprite->Draw(CRect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT), CRGBA(255, 255, 255, 255));
-                if (str1)
-                    DrawProgressBar(ScaleX(44.0f), SCREEN_HEIGHT - ScaleY(56.0f), ScaleX(172.0f), ScaleY(10.0f), NumberOfChunksLoaded, CRGBA(HUD_COLOUR_RED, 255), CRGBA(HUD_COLOUR_GREYDARK, 255));
+
+                if (str1) {
+                    DrawProgressBar(ScaleX(44.0f), SCREEN_HEIGHT - ScaleY(56.0f), ScaleX(172.0f), ScaleY(10.0f), NumberOfChunksLoaded, CRGBA(HUD_COLOUR_RED_LC01, 255), CRGBA(HUD_COLOUR_GREYDARK, 255));
+                    FrontEndMenuManager.m_aMenuSprites[MENUSPRITE_GTALOGO].Draw(ScaleX(44.0f - 24.0f), SCREEN_HEIGHT - ScaleY(56.0f + 192.0f), ScaleX(226.0f), ScaleY(226.0f), CRGBA(255, 255, 255, 255));
+                }
+
                 DoRwStuffEndOfFrame();
-            }    
+            }
+
             NumberOfChunksLoaded += 0.1f;// * (previousTime - timer.GetTimeInMilliseconds());
             previousTime = timer.GetTimeInMilliseconds();
+
+            FrontEndMenuManager.UnloadTextures();
         };
-        plugin::patch::RedirectJump(0x48D770, LAMBDA(void, __cdecl, drawLoadingScreen, const char*, const char*, const char*));
+
+        //plugin::patch::RedirectJump(0x48D770, LAMBDA(void, __cdecl, drawLoadingScreen, const char*, const char*, const char*));
+        // SaveLoader crash workaround
+        plugin::patch::RedirectCall({ 
+            0x47627A,
+            0x48BB70,
+            0x48BF0C,
+            0x48BF43,
+            0x48BF84,
+            0x48C069,
+            0x48C0B0,
+            0x48C0F6,
+            0x48C194,
+            0x48C1BC,
+            0x48C1D5,
+            0x48C1F8,
+            0x48C216,
+            0x48C263,
+            0x48C281,
+            0x48C2DC,
+            0x48C2F5,
+            0x48C327,
+            0x48C34F,
+            0x48E7E9,
+            0x582D9E,
+            0x582DD1,
+            0x592C50,
+            }, LAMBDA(void, __cdecl, drawLoadingScreen, const char*, const char*, const char*));
+
+
+        // menu background 
+        auto changeBackgroundHack = []() {
+            CMenuManager* _this = &FrontEndMenuManager;
+            uint8_t prev = MENUSPRITE_FINDGAME;
+            uint8_t curr = MENUSPRITE_FINDGAME;
+
+            switch (_this->m_nPreviousMenuPage) {
+            case MENUPAGE_SKIN_SELECT:
+                prev = MENUSPRITE_PLAYERSET;
+                break;
+            };
+
+            switch (_this->m_nCurrentMenuPage) {
+            case MENUPAGE_SKIN_SELECT:
+                curr = MENUSPRITE_PLAYERSET;
+                break;
+            };
+
+            // prev
+            plugin::patch::SetUChar(0x47A61D + 1, prev);
+
+            // curr
+            plugin::patch::SetUChar(0x47A740 + 1, curr);
+        };
+        plugin::patch::RedirectCall(0x47A5D1, LAMBDA(void, __cdecl, changeBackgroundHack));
+#endif
+
+#ifdef GTA3        
+        static bool wasAButton = false;
+        auto printCharButton = [](float x, float y, short chr) {
+            float w = CFont::Details.m_vScale.y * 14.0f;
+            float h = CFont::Details.m_vScale.y * 14.0f;
+            short c = chr + ' ';    
+
+            wasAButton = true;
+            switch (c) {
+            case '<': // left
+                pcbtnsSprites.at(PCBTN_LEFT).Draw(x, y, w, h, CRGBA(255, 255, 255, 255));
+                return;
+            case '>': // right
+                pcbtnsSprites.at(PCBTN_RIGHT).Draw(x, y, w, h, CRGBA(255, 255, 255, 255));
+                return;
+            case ';': // up
+                pcbtnsSprites.at(PCBTN_UP).Draw(x, y, w, h, CRGBA(255, 255, 255, 255));
+                return;
+            case '=': // down
+                pcbtnsSprites.at(PCBTN_DOWN).Draw(x, y, w, h, CRGBA(255, 255, 255, 255));
+                return;
+            }
+
+            CFont::PrintChar(x, y, chr);
+            wasAButton = false;
+        };
+       
+        plugin::patch::RedirectCall(0x50179F, LAMBDA(void, __cdecl, printCharButton, float, float, short));
+
+       //auto getCharacterSize = [](short c) {
+       //    float value = 0.0f;
+       //
+       //    short** size = (short**)0x501910 + 4;
+       //
+       //    if (isAButton(c))
+       //        value = 14.0f;
+       //    else {
+       //        if (CFont::Details.m_bProp)
+       //            value = size[CFont::Details.m_nStyle][c];
+       //        else
+       //            value = size[CFont::Details.m_nStyle][192];
+       //    }
+       //
+       //    return value * CFont::Details.m_vScale.x;
+       //};
+       //plugin::patch::RedirectJump(0x501840, LAMBDA(float, __cdecl, getCharacterSize, short));
+
 #endif
  }
 
