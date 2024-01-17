@@ -1816,7 +1816,7 @@ public:
                 break;
 
             auto& tab = tabs[i];
-            w += CFont::GetStringWidth(textLoader.Get(tab.str), false);
+            w += CFont::GetStringWidth(textLoader.Get(tab.str), false, false);
             w += spacing;
             count++;
         }
@@ -1825,7 +1825,7 @@ public:
     }
 
     static inline void DrawOneTab(CMenuManager* _this, int32_t i, float x, float y, const plugin::char_t* str) {
-        const float strWidth = CFont::GetStringWidth(str, false);
+        const float strWidth = CFont::GetStringWidth(str, false, false);
 
 #if defined(GTA3) && defined(GTA3_MENU_MAP)
         if (menuMap) {
@@ -2043,7 +2043,7 @@ public:
 #endif
 
             const plugin::char_t* str = textLoader.Get(tabs.at(i).str);
-            const float strWidth = CFont::GetStringWidth(str, false);
+            const float strWidth = CFont::GetStringWidth(str, false, false);
             DrawOneTab(_this, i, currentX, ScaleY(y), str);
 #if !defined(GTA3) || defined(LCSFICATION)
             currentX += strWidth + spacing;
