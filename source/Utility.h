@@ -6,9 +6,7 @@
 #include "CText.h"
 
 #define FLASH_ITEM(on, off) (CTimer::m_snTimeInMilliseconds % on + off < on)
-
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
+#define FLASH_ITEM_PAUSE_MODE(on, off) (CTimer::m_snTimeInMillisecondsPauseMode % on + off < on)
 
 #define DEFAULT_SCREEN_WIDTH 640.0f
 #define DEFAULT_SCREEN_HEIGHT 480.0f
@@ -225,37 +223,31 @@ static wchar_t* LowerCase(wchar_t* s) {
     return (wchar_t*)wbuff.c_str();
 }
 
-static RwTexture* LoadIMG(const char* path) {
+static RwTexture* CreateRwTexture(int32_t w, int32_t h, uint8_t* p) {
     RwTexture* texture = nullptr;
 
-    if (path) {
-        int32_t w, h, c;
-        uint8_t* p = stbi_load(path, &w, &h, &c, 4);
+    RwRaster* raster = RwRasterCreate(w, h, 0, rwRASTERTYPETEXTURE | rwRASTERFORMAT8888);
+    RwUInt32* pixels = (RwUInt32*)RwRasterLock(raster, 0, rwRASTERLOCKWRITE);
 
-        RwRaster* raster = RwRasterCreate(w, h, 0, rwRASTERTYPETEXTURE | rwRASTERFORMAT8888);
-        RwUInt32* pixels = (RwUInt32*)RwRasterLock(raster, 0, rwRASTERLOCKWRITE);
+    for (int32_t i = 0; i < w * h * 4; i += 4) {
+        uint8_t r = p[i + 2];
+        uint8_t g = p[i + 1];
+        uint8_t b = p[i];
 
-        for (int32_t i = 0; i < w * h * 4; i += 4) {
-            uint8_t r = p[i + 2];
-            uint8_t g = p[i + 1];
-            uint8_t b = p[i];
-
-            p[i + 2] = b;
-            p[i + 1] = g;
-            p[i] = r;
-        }
-
-        memcpy(pixels, p, w * h * 4);
-        RwRasterUnlock(raster);
-        texture = RwTextureCreate(raster);
-        RwTextureSetFilterMode(texture, rwFILTERLINEAR);
-        stbi_image_free(p);
+        p[i + 2] = b;
+        p[i + 1] = g;
+        p[i] = r;
     }
+
+    memcpy(pixels, p, w * h * 4);
+    RwRasterUnlock(raster);
+    texture = RwTextureCreate(raster);
+    RwTextureSetFilterMode(texture, rwFILTERLINEAR);
 
     return texture;
 }
 
-void DrawProgressBar(float x, float y, float w, float h, float progress, CRGBA const& front, CRGBA const& back) {
+static void DrawProgressBar(float x, float y, float w, float h, float progress, CRGBA const& front, CRGBA const& back) {
     progress = plugin::Clamp(progress, 0.0f, 1.0f);
     
     float b = ScaleY(2.0f);
