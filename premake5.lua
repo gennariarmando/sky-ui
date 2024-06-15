@@ -66,7 +66,8 @@ project "sky-ui"
 	
 	libdirs { 
 		"$(PLUGIN_SDK_DIR)/output/lib/",
-	}
+        "$(PLUGIN_SDK_DIR)\\shared\\bass",
+    }
 	
 	filter "configurations:Debug*"		
 		defines { "DEBUG" }

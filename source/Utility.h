@@ -1,4 +1,5 @@
 #pragma once
+#include "PluginBase.h"
 #include "CTimer.h"
 #include "extensions/Screen.h"
 #include "CSprite2d.h"
@@ -252,11 +253,38 @@ static void DrawProgressBar(float x, float y, float w, float h, float progress, 
     
     float b = ScaleY(2.0f);
     float s = ScaleY(4.0f);
-    CSprite2d::DrawRect(CRect(x - b + s, y - b + s, x + w + b + s, y + h + b + s), CRGBA(0, 0, 0, min(back.a, 200)));
+    CSprite2d::DrawRect(CRect(x - b + s, y - b + s, x + w + b + s, y + h + b + s), CRGBA(0, 0, 0, std::min(back.a, (uint8_t)200)));
 
     CSprite2d::DrawRect(CRect(x - b, y - b, x + w + b, y + h + b), CRGBA(0, 0, 0, back.a));
     CSprite2d::DrawRect(CRect(x, y, x + w, y + h), back);
     
     if (progress > 0.0f)
         CSprite2d::DrawRect(CRect(x, y, x + w * progress, y + h), front);
+}
+
+static uint64_t RsTimer() {
+    return plugin::CallAndReturnDyn<uint64_t>(0x584890);
+}
+
+static int32_t RsCameraShowRaster(RwCamera* cam) {
+    return plugin::CallAndReturnDyn<int32_t>(0x5848A0, cam);
+}
+
+static void DefinedState2d() {
+    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATETEXTUREADDRESS, (void*)1);
+    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATETEXTUREPERSPECTIVE, 0);
+    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)0);
+    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)0);
+    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATESHADEMODE, (void*)2);
+    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)2);
+    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, (void*)0);
+    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATESRCBLEND, (void*)5);
+    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATEDESTBLEND, (void*)6);
+    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATEBORDERCOLOR, (void*)0xFF000000);
+    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATEFOGENABLE, (void*)0);
+    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATECULLMODE, (void*)1);
+}
+
+static int32_t RsCameraBeginUpdate(RwCamera* cam) {
+    return plugin::CallAndReturnDyn<int32_t>(0x5848B0, cam);
 }
