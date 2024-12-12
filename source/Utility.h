@@ -271,18 +271,18 @@ static int32_t RsCameraShowRaster(RwCamera* cam) {
 }
 
 static void DefinedState2d() {
-    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATETEXTUREADDRESS, (void*)1);
-    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATETEXTUREPERSPECTIVE, 0);
-    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)0);
-    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)0);
-    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATESHADEMODE, (void*)2);
-    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)2);
-    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, (void*)0);
-    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATESRCBLEND, (void*)5);
-    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATEDESTBLEND, (void*)6);
-    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATEBORDERCOLOR, (void*)0xFF000000);
-    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATEFOGENABLE, (void*)0);
-    RwEngineInstance->dOpenDevice.fpRenderStateSet(rwRENDERSTATECULLMODE, (void*)1);
+    RwRenderStateSet(rwRENDERSTATETEXTUREADDRESS, (void*)1);
+    RwRenderStateSet(rwRENDERSTATETEXTUREPERSPECTIVE, 0);
+    RwRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)0);
+    RwRenderStateSet(rwRENDERSTATEZWRITEENABLE, (void*)0);
+    RwRenderStateSet(rwRENDERSTATESHADEMODE, (void*)2);
+    RwRenderStateSet(rwRENDERSTATETEXTUREFILTER, (void*)2);
+    RwRenderStateSet(rwRENDERSTATEVERTEXALPHAENABLE, (void*)0);
+    RwRenderStateSet(rwRENDERSTATESRCBLEND, (void*)5);
+    RwRenderStateSet(rwRENDERSTATEDESTBLEND, (void*)6);
+    RwRenderStateSet(rwRENDERSTATEBORDERCOLOR, (void*)0xFF000000);
+    RwRenderStateSet(rwRENDERSTATEFOGENABLE, (void*)0);
+    RwRenderStateSet(rwRENDERSTATECULLMODE, (void*)1);
 }
 
 static int32_t RsCameraBeginUpdate(RwCamera* cam) {
