@@ -9,6 +9,7 @@
 #include "CScene.h"
 #include "CGeneral.h"
 #include "CMenuManager.h"
+#include "Timer.h"
 
 #include <algorithm>
 #include <iomanip>
@@ -17,6 +18,9 @@
 #include <numeric>
 #include <random>
 #include <vector>
+
+#include "dxsdk/d3d9.h"
+#pragma comment(lib, "d3d9")
 
 void CLoadingScreen::Init(bool loaded) {
     if (IsActive()) {
@@ -59,6 +63,9 @@ void CLoadingScreen::RenderSplash() {
     if (m_bFading) {
         GetCurrentDisplayedSplash().Draw(rect, color);
 
+        if (m_currDisplayedSplash > 0)
+            GetGTALogo().Draw(ScaleX(44.0f - 24.0f), SCREEN_HEIGHT - ScaleY(56.0f + 192.0f), ScaleX(226.0f), ScaleY(226.0f), color);
+
         if (m_bFadeInNextSplashFromBlack || m_bFadeOutCurrSplashToBlack) {
             color.Set(0, 0, 0);
             color.a = (m_bFadeInNextSplashFromBlack) ? 255 - m_FadeAlpha : m_FadeAlpha;
@@ -69,10 +76,16 @@ void CLoadingScreen::RenderSplash() {
             color.a = 255 - m_FadeAlpha;
 
             m_aSplashes[m_currDisplayedSplash - 1].sprite.Draw(rect, color);
+
+            if (m_currDisplayedSplash - 1 > 0)
+                GetGTALogo().Draw(ScaleX(44.0f - 24.0f), SCREEN_HEIGHT - ScaleY(56.0f + 192.0f), ScaleX(226.0f), ScaleY(226.0f), color);
         }
     }
     else if (!m_bReadyToDelete) {
         GetCurrentDisplayedSplash().Draw(rect, color);
+
+        if (m_currDisplayedSplash > 0)
+            GetGTALogo().Draw(ScaleX(44.0f - 24.0f), SCREEN_HEIGHT - ScaleY(56.0f + 192.0f), ScaleX(226.0f), ScaleY(226.0f), color);
     }
 }
 
@@ -146,7 +159,6 @@ void CLoadingScreen::RenderLoadingBar() {
     if (m_bLegalScreen || gfLoadingPercentage <= 0.0f || gfLoadingPercentage >= 100.0f)
         return;
 
-    GetGTALogo().Draw(ScaleX(44.0f - 24.0f), SCREEN_HEIGHT - ScaleY(56.0f + 192.0f), ScaleX(226.0f), ScaleY(226.0f), CRGBA(255, 255, 255, 255));
     DrawProgressBar(ScaleX(44.0f), SCREEN_HEIGHT - ScaleY(56.0f), ScaleX(172.0f), ScaleY(10.0f), gfLoadingPercentage / 100.0f, CRGBA(HUD_COLOUR_RED_LC01, 255), CRGBA(HUD_COLOUR_GREYDARK, 255));
 }
 
@@ -165,7 +177,39 @@ void CLoadingScreen::DisplayPCScreen() {
             RenderLoadingBar();
         }
         RwCameraEndUpdate(Scene.m_pCamera);
-        RsCameraShowRaster(Scene.m_pCamera);
+        RwCameraShowRaster(Scene.m_pCamera, RsGlobal.ps->window, rwRASTERFLIPDONTWAIT);
+    }
+}
+
+void CLoadingScreen::DisplayPCScreenFix(double targetDuration, uint8_t* alpha, bool direction, float* attenuation) {
+    auto startTime = std::chrono::high_resolution_clock::now();
+
+    const double frameDuration = 1.0 / RsGlobal.maxFPS;
+
+    while (true) {
+        auto currentTime = std::chrono::high_resolution_clock::now();
+        auto elapsedTime = std::chrono::duration<double>(currentTime - startTime).count();
+
+        if (elapsedTime >= targetDuration)
+            break;
+
+        if (alpha) {
+            if (!direction)
+                *alpha = 255 - (uint8_t)((elapsedTime / targetDuration) * 255);
+            else
+                *alpha = (uint8_t)((elapsedTime / targetDuration) * 255);
+        }
+
+        if (attenuation && alpha) {
+            if (m_bFadeOutCurrSplashToBlack) {
+                float amplitude = m_bFadeOutCurrSplashToBlack ? (255.0f - *alpha) / 255.0f : 1.0f;
+                m_loadingVolumeMult = amplitude;
+            }
+        }
+
+        DisplayPCScreen();
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(frameDuration * 1000)));
     }
 }
 
@@ -176,14 +220,9 @@ void CLoadingScreen::DoPCTitleFadeOut() {
 
     m_FadeAlpha = 255;
 
-    for (uint32_t i = SPLASH_DURATION; i; i--) {
-        DisplayPCScreen();
-    }
+    DisplayPCScreenFix(SPLASH_DURATION, nullptr, false, nullptr);
 
-    for (uint32_t i = FADE_DURATION; i; i--) {
-        m_FadeAlpha = (uint8_t)((i / (float)FADE_DURATION) * 250);
-        DisplayPCScreen();
-    }
+    DisplayPCScreenFix(FADE_DURATION, &m_FadeAlpha, false, nullptr);
 
     m_FadeAlpha = 0;
     m_bFadeInNextSplashFromBlack = true;
@@ -194,10 +233,8 @@ void CLoadingScreen::DoPCTitleFadeIn() {
     m_currDisplayedSplash = 0;
     m_bFading = true;
 
-    for (uint32_t i = 0; i < FADE_DURATION; i++) {
-        m_FadeAlpha = (uint8_t)((i / (float)FADE_DURATION) * 250);
-        DisplayPCScreen();
-    }
+    DisplayPCScreenFix(FADE_DURATION, &m_FadeAlpha, true, nullptr);
+
     m_FadeAlpha = 255;
 
     DisplayPCScreen();
@@ -210,16 +247,18 @@ void CLoadingScreen::DoPCScreenChange(bool finish) {
         loadingThread = std::thread([&]() {
             if (RsGlobal.quit)
                 return;
-
+    
             if (m_loadSampleToPlay == -1) {
                 int32_t res = std::uniform_int<int32_t>(0, NUM_LOAD_SAMPLES - 1)(std::mt19937{ std::random_device{}() });
                 m_loadSampleToPlay = res;
             }
-
-            while (m_loadingVolumeMult > 0.0f) {
-                CLoadingScreen::sampleManager->AddSampleToQueue(1, (uint8_t)(80 * m_loadingVolumeMult), 0, m_loadSampleToPlay, true, {}, 8, true);
+    
+            while (m_loadingVolumeMult > 0.1f) {
+                CLoadingScreen::sampleManager->AddSampleToQueue((uint8_t)(80 * m_loadingVolumeMult), 0, m_loadSampleToPlay, true, {}, 8, false);
                 CLoadingScreen::sampleManager->Process();
             }
+    
+            sampleManager->StopAllChannels();
         });
     }
 
@@ -234,21 +273,10 @@ void CLoadingScreen::DoPCScreenChange(bool finish) {
 
     m_FadeAlpha = 0;
 
-    for (uint32_t i = SPLASH_DURATION; i > 0; i--) {
-        DisplayPCScreen();
-    }
+    DisplayPCScreenFix(SPLASH_DURATION, nullptr, false, nullptr);
 
-    for (uint32_t i = 0; i < FADE_DURATION; i++) {
-        float alpha = ((i / (float)FADE_DURATION) * 250.0f);
-        m_FadeAlpha = (uint8_t)alpha;
+    DisplayPCScreenFix(FADE_DURATION, &m_FadeAlpha, true, &m_loadingVolumeMult);
 
-        if (finish || m_bFadeOutCurrSplashToBlack) {
-            float amplitude = m_bFadeOutCurrSplashToBlack ? (255.0f - alpha) / 255.0f : 1.0f;
-            m_loadingVolumeMult = amplitude;
-        }
-
-        DisplayPCScreen();
-    }
     m_FadeAlpha = 255;
     DisplayPCScreen();
 

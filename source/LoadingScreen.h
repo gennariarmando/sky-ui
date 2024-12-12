@@ -17,8 +17,8 @@ public:
     };
     static constexpr bool SKIP_EAX_NVIDIA = true;
 
-    static constexpr uint32_t FADE_DURATION = 250;
-    static constexpr uint32_t SPLASH_DURATION = 200;
+    static constexpr float FADE_DURATION = 1.0f;
+    static constexpr float SPLASH_DURATION = 0.5f;
     static constexpr uint32_t NUM_SPLASHES = 21;
     static constexpr uint32_t NUM_CHUNKS = 80;
     static constexpr float SCREEN_CHANGE_TIME = 4.0f;
@@ -72,6 +72,7 @@ public:
     static void DoPCTitleFadeIn();
     static void DoPCScreenChange(bool finish);
     static void NewChunkLoaded();
+    static void DisplayPCScreenFix(double targetDuration, uint8_t* alpha, bool direction, float* attenuation);
 
     static bool IsActive() {
         return m_bActive;
