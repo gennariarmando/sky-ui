@@ -65,8 +65,9 @@
 
 #include "GInputAPI.h"
 
+//#include "SkyUIAPI.h"
+
 #pragma warning(disable : 4251 4081)
-#pragma optimize("", off)
 
 class __declspec(dllexport) SkyUI {
 public:
@@ -208,6 +209,7 @@ public:
         MENUACTION_CONTROLLER_DISPLAY,
         MENUACTION_CONTROLLER_VIBRATION,
         MENUACTION_SWITCH_DISPLAY_ADVANCED,
+        MENUACTION_CHANGELANG,
     };
 
     static inline bool initialised = false;
@@ -222,6 +224,7 @@ public:
     static inline bool menuActive = false;
     static inline bool saveMenuActive = false;
     static inline bool justEnteredTab = false;
+    static inline uint32_t currentEntryOnLoopHackyHacky = 0;
 #ifdef GTAVC
     static inline CMenuPoly selectedItemPoly = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
     static inline CMenuPoly tempItemPoly = { 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f };
@@ -357,9 +360,19 @@ public:
         return (pad->NewState.DPadUp && !pad->OldState.DPadUp) || (pad->NewKeyState.up && !pad->OldKeyState.up);
     }
 
+    static inline bool GetUpPressed() {
+        CPad* pad = CPad::GetPad(0);
+        return (pad->NewState.DPadUp) || (pad->NewKeyState.up);
+    }
+
     static inline bool GetDown() {
         CPad* pad = CPad::GetPad(0);
         return (pad->NewState.DPadDown && !pad->OldState.DPadDown) || (pad->NewKeyState.down && !pad->OldKeyState.down);
+    }
+
+    static inline bool GetDownPressed() {
+        CPad* pad = CPad::GetPad(0);
+        return (pad->NewState.DPadDown) || (pad->NewKeyState.down);
     }
 
     static inline bool GetEnter() {
@@ -687,6 +700,48 @@ public:
         return currentInput;
     }
 
+    typedef uint8_t(*MenuOptionCB)(uint32_t action, int8_t arrows, bool* back, bool enter);
+    typedef plugin::char_t* (*MenuOptionStringsCB)(uint32_t action);
+
+    static inline std::vector<MenuOptionCB> menuOptionCallbacks = {};
+    static inline std::vector<MenuOptionStringsCB> menuOptionStringCallbacks = {};
+    static inline std::unordered_map<uint32_t, uint32_t> menuOptionOrientationsMap = {};
+    static inline std::vector<void(*)(bool)> saveOrLoadCallbacks = {};
+
+    static inline void ProcessMenuOptionsCB(MenuOptionCB cb) {
+#pragma comment(linker, "/EXPORT:" __FUNCTION__"=" __FUNCDNAME__)
+
+        if (!menuOptionCallbacks.capacity()) {
+            menuOptionCallbacks.reserve(10);
+        }
+        menuOptionCallbacks.push_back(cb);
+    }
+
+    static inline void ProcessMenuOptionsStringsCB(MenuOptionStringsCB cb) {
+#pragma comment(linker, "/EXPORT:" __FUNCTION__"=" __FUNCDNAME__)
+        if (!menuOptionStringCallbacks.capacity()) {
+            menuOptionStringCallbacks.reserve(10);
+        }
+        menuOptionStringCallbacks.push_back(cb);
+    }
+
+    static inline void AddEntryToMenuScreen(uint32_t screen, uint32_t entry, uint32_t action, const char* entryName, uint32_t targetScreen, uint32_t orientation) {
+#pragma comment(linker, "/EXPORT:" __FUNCTION__"=" __FUNCDNAME__)
+        aScreens[screen].m_aEntries[entry].m_nAction = action;
+        strcpy(aScreens[screen].m_aEntries[entry].m_EntryName, entryName);
+        aScreens[screen].m_aEntries[entry].m_nSaveSlot = 0;
+        aScreens[screen].m_aEntries[entry].m_nTargetMenu = targetScreen;
+        menuOptionOrientationsMap[action] = orientation;
+    }
+
+    static inline void SaveOrLoadSettingsCB(void (*cb)(bool isLoading)) {
+#pragma comment(linker, "/EXPORT:" __FUNCTION__"=" __FUNCDNAME__)
+        if (!saveOrLoadCallbacks.capacity()) {
+            saveOrLoadCallbacks.reserve(10);
+        }
+        saveOrLoadCallbacks.push_back(cb);
+    }
+
     static inline void EnterTab(CMenuManager* _this, int32_t i = -1, bool playSound = true) {
         if (saveMenuActive)
             return;
@@ -697,8 +752,8 @@ public:
             i = currentTab;
 
 #ifdef GTA3
-        if (i == TAB_STA || i == TAB_BRI)
-            return;
+        //if (i == TAB_STA || i == TAB_BRI)
+        //    return;
 #elif GTAVC
         if (i == TAB_BRI)
             return;
@@ -1028,11 +1083,16 @@ public:
                 SetHelpText(4, "FEDSAS4");
             break;
         case TAB_STA:
-            SetHelpText(0, "FEDS_ST");
-            SetHelpText(1, "FEDS_AM");
-
-            SetHelpText(4, "FEDSSC1");
-            SetHelpText(5, "FEDSSC2");
+            if (currentInput == INPUT_TAB) {
+                SetHelpText(0, "FEDS_SE");
+                SetHelpText(1, classicControls ? "FEDS_BA" : "FEDSBAC");
+                SetHelpText(4, "FEDS_AM");
+            }
+            else {
+                SetHelpText(0, classicControls ? "FEDS_BA" : "FEDSBAC");
+                SetHelpText(4, "FEDSSC1");
+                SetHelpText(5, "FEDSSC2");
+            }
             break;
         case TAB_BRI:
             SetHelpText(0, "FEDS_ST");
@@ -1057,6 +1117,7 @@ public:
             else {
                 SetHelpText(0, "FEDS_SE");
                 SetHelpText(1, classicControls ? "FEDS_BA" : "FEDSBAC");
+                SetHelpText(4, "FEDS_AM");
             }
             break;
         }
@@ -1239,9 +1300,7 @@ public:
             timeToWaitBeforeStateChange = CTimer::m_snTimeInMillisecondsPauseMode;
         }
 
-        previousTimeInMilliseconds = CTimer::m_snTimeInMillisecondsPauseMode;
-
-        if (currentInput == INPUT_STANDARD) {
+        if (currentInput == INPUT_STANDARD && GetCheckHoverForStandardInput(_this)) {
             bool enter = GetEnter() || (GetLMB() && _this->m_nHoverOption != 44);
             int32_t arrows = GetLeft() || GetWheelDown() ? -1 : GetRight() || GetWheelUp() ? 1 : 0;
             bool back = nullptr;
@@ -1255,16 +1314,47 @@ public:
 #endif
                 }
             }
+
+            if (_this->m_nCurrentMenuPage == MENUPAGE_STATS && GetCheckHoverForStandardInput(_this)) {
+                if (GetLMBPressed())
+                    statsScrollY -= _this->m_nMouseOldPosY - _this->m_nMousePosY;
+                else {
+                    if (GetUpPressed())
+                        statsScrollY -= (CTimer::m_snTimeInMillisecondsPauseMode - previousTimeInMilliseconds) * 0.1f;
+                    else if (GetDownPressed())
+                        statsScrollY += (CTimer::m_snTimeInMillisecondsPauseMode - previousTimeInMilliseconds) * 0.1f;
+                }
+
+                for (int32_t i = 0; i < 2; i++) {
+                    int32_t numRows = _this->CostructStatLine(99999);
+                    float size = (20 * numRows);
+
+                    if (statsScrollY > 280.0f)
+                        statsScrollY = -size;
+
+                    if (statsScrollY < -size)
+                        statsScrollY = 280.0f;
+                }
+            }
+        }
+        else {
+            if (_this->m_nCurrentMenuPage == MENUPAGE_STATS)
+                statsScrollY -= (CTimer::m_snTimeInMillisecondsPauseMode - previousTimeInMilliseconds) * 0.01f;
         }
         if (timeToVibrate < CTimer::m_snTimeInMillisecondsPauseMode) {
             timeToVibrate = 0;
             CPad::GetPad(0)->StopShaking(0);
         }
+
+        previousTimeInMilliseconds = CTimer::m_snTimeInMillisecondsPauseMode;
     }
 
     static inline const plugin::char_t* ProcessMenuOptionsStrings(CMenuManager* _this, int32_t i) {
         const plugin::char_t* str = nullptr;
         int32_t action = aScreens[_this->m_nCurrentMenuPage].m_aEntries[i].m_nAction;
+
+        currentEntryOnLoopHackyHacky = i;
+
         switch (action) {
             case MENUACTION_CONTROLLER_CONFIG:
 #ifdef GTASA
@@ -1278,6 +1368,34 @@ public:
                 break;
             case MENUACTION_CONTROLLER_VIBRATION:
                 str = prefsVibration ? textLoader.Get("FEM_ON") : textLoader.Get("FEM_OFF");
+                break;
+            case MENUACTION_CHANGELANG:
+                switch (_this->m_nPrefsLanguage) {
+                    case 1:
+                        str = textLoader.Get("FEL_FRE");
+                        break;
+                    case 2:
+                        str = textLoader.Get("FEL_GER");
+                        break;
+                    case 3:
+                        str = textLoader.Get("FEL_ITA");
+                        break;
+                    case 4:
+                        str = textLoader.Get("FEL_SPA");
+                        break;
+                    default:
+                        str = textLoader.Get("FEL_ENG");
+                        break;
+                }
+                break;
+            default:
+                for (auto& it : menuOptionStringCallbacks) {
+                    auto out = it(action);
+                    if (out) {
+                        str = out;
+                        break;
+                    }
+                }
                 break;
         }
 
@@ -1385,13 +1503,12 @@ public:
             case MENUACTION_CONTROLLER_VIBRATION:
                 prefsVibration ^= true;
                 if (prefsVibration) {
-                    CPad::GetPad(0)->StopShaking(0);
-                    CPad::GetPad(0)->StartShake(300, 150);
-                    timeToVibrate = CTimer::m_snTimeInMillisecondsPauseMode + 300;
+                    CPad::GetPad(0)->StartShake(150, 150);
+                    timeToVibrate = CTimer::m_snTimeInMillisecondsPauseMode + 500;
                 }
 
-                SetGInputStuff();
-                SetFocus();
+                //SetGInputStuff();
+                //SetFocus();
                 SaveSettings();
                 return 1;
 #ifdef GTAVC
@@ -1402,6 +1519,29 @@ public:
                     SwitchCurrentScreenHack(_this, MENUPAGE_DISPLAY_SETTINGS, MENUPAGE_DISPLAY_ADVANCED);
                 return 1;
 #endif
+            case MENUACTION_CHANGELANG:
+                if (arrows < 0)
+                    _this->m_nPrefsLanguage--;
+                else
+                    _this->m_nPrefsLanguage++;
+
+                if (_this->m_nPrefsLanguage < 0)
+                    _this->m_nPrefsLanguage = 4;
+
+                if (_this->m_nPrefsLanguage > 4)
+                    _this->m_nPrefsLanguage = 0;
+
+                _this->m_bFrontEnd_ReloadObrTxtGxt = true;
+                _this->InitialiseChangedLanguageSettings();
+                SaveSettings();
+                return 1;
+            default:
+                for (auto& it : menuOptionCallbacks) {
+                    auto res = it(action, arrows, back, enter);
+                    if (res)
+                        return res;
+                }
+                break;
         }
 
         return 0;
@@ -1648,13 +1788,14 @@ public:
         CFont::SetBackgroundOff();
         CFont::SetCentreOff();
         CFont::SetRightJustifyOff();
-        CFont::SetJustifyOff();
+        CFont::SetJustifyOn();
+        CFont::SetSlant(0.0f);
 #elif GTASA
         CFont::SetProportional(true);
         CFont::SetBackground(false, false);
         CFont::SetOrientation(ALIGN_LEFT);
 #endif
-        CFont::SetWrapx(SCREEN_WIDTH);
+        CFont::SetWrapx(SCREEN_WIDTH * 2);
         CFont::SetRightJustifyWrap(0.0f);
         CFont::SetDropShadowPosition(0);
 
@@ -1668,14 +1809,14 @@ public:
         float startx = ScaleXKeepCentered(50.0f + GetMenuOffsetX());
         float starty = ScaleY(DEFAULT_SCREEN_HEIGHT - 94.0f);
 #elif defined(GTA3) && defined(LC01) 
-        CFont::SetDropShadowPosition(1);
-        CFont::SetScale(ScaleX(0.35f), ScaleY(0.95f));
+        CFont::SetDropShadowPosition(0);
+        CFont::SetScale(ScaleX(0.4f), ScaleY(0.9f));
 
         CFont::SetDropColor(CRGBA(0, 0, 0, GetAlpha(255)));
         CFont::SetColor(CRGBA(HUD_COLOUR_WHITE, GetAlpha(255)));
         CFont::SetFontStyle(0);
 
-        float startx = ScaleX(40.0f + GetMenuOffsetX());
+        float startx = ScaleX(26.0f + GetMenuOffsetX());
         float starty = ScaleY(DEFAULT_SCREEN_HEIGHT - 74.0f);
         spacing += 8.0f;
 #elif GTAVC
@@ -1712,10 +1853,19 @@ public:
             spacing = 12.0f;
 #endif
 
+        CFont::SetOrientation(ALIGN_LEFT);
+
         uint32_t i = 0;
+        bool orientRight = false;
         for (auto& it : helpTexts) {
             if (!it.empty()) {
-                CFont::PrintString(x, y, textLoader.Get(it.c_str()));
+                auto str = textLoader.Get(it.c_str());
+                float offset = 0.0f;
+                if (orientRight) {
+                    offset = CFont::GetStringWidth(str, true);
+                }
+
+                CFont::PrintString(x - offset, y, str);
             }
 
             y += ScaleY(spacing);
@@ -1727,15 +1877,13 @@ public:
             }
 #elif defined(GTA3) && defined(LC01) 
             if (i == 1) {
-                CFont::SetCentreOff();
-                CFont::SetRightJustifyOff();
+                orientRight = false;
                 x = (SCREEN_WIDTH / 2) - ScaleX(40.0f);
                 y = starty;
             }
 
             if (i == 3) {
-                CFont::SetCentreOff();
-                CFont::SetRightJustifyOn();
+                orientRight = true;
                 x = SCREEN_WIDTH - ScaleX(40.0f);
                 y = starty;
             }
@@ -1743,18 +1891,17 @@ public:
             if (i == 4) {
                 x += ScaleX(8.0f);
                 y = starty;
-                CFont::SetRightJustifyOff();
-                CFont::SetCentreOff();
+                orientRight = false;
             }
 #elif GTASA
             if (i == 1) {
-                CFont::SetOrientation(ALIGN_LEFT);
+                orientRight = false;
                 x = (SCREEN_WIDTH / 2) - ScaleX(40.0f);
                 y = starty;
             }
 
             if (i == 3) {
-                CFont::SetOrientation(ALIGN_RIGHT);
+                orientRight = true;
                 x = SCREEN_WIDTH - ScaleX(40.0f);
                 y = starty;
             }
@@ -1775,6 +1922,80 @@ public:
             (t.x4), (t.y4), CRGBA(HUD_COLOUR_GREENLIGHT, GetAlpha()));
     }
 #endif
+
+    static inline float statsScrollY = 0.0f;
+    static inline float CalculateAlpha(float y, float startY, float endY) {
+        float alpha = 0.0f;
+        float smoothRange = startY * 0.05f;
+
+        if (y < startY - smoothRange) {
+            alpha = 0.0f;
+        }
+        else if (y > endY + smoothRange) {
+            alpha = 0.0f;
+        }
+        else if (y < startY) {
+            alpha = (y - (startY - smoothRange)) / smoothRange;
+        }
+        else if (y > endY) {
+            alpha = ((endY + smoothRange) - y) / smoothRange;
+        }
+        else {
+            alpha = 1.0f;
+        }
+
+        if (alpha < 0.0f) 
+            alpha = 0.0f;
+
+        if (alpha > 1.0f) 
+            alpha = 1.0f;
+
+        return alpha;
+    }
+
+    static inline void DrawStats(CMenuManager* _this) {
+        int32_t numLines = _this->CostructStatLine(99999);
+
+        CFont::SetBackground(false);
+        CFont::SetProportional(true);
+        CFont::SetDropShadowPosition(1);
+        CFont::SetFontStyle(FONT_SUBTITLES);
+        CFont::SetScale(ScaleX(CONSOLE_MENU_SCALE_X * 0.9f), ScaleY(CONSOLE_MENU_SCALE_Y * 0.9f));
+
+        const float spacing = 20.0f;
+        const float crimRaY = 64.0f;
+        const float startY = crimRaY + 24.0f;
+        const float endY = DEFAULT_SCREEN_HEIGHT - (startY + (spacing * 2));
+
+        for (int32_t i = 1; i < numLines; i++) {
+            _this->CostructStatLine(i);
+
+            float y = (startY + statsScrollY) + spacing * i;
+            float alpha = CalculateAlpha(y, startY, endY);
+
+            CFont::SetColor(CRGBA(225, 225, 225, GetAlpha(255 * alpha)));
+            CFont::SetDropColor(CRGBA(0, 0, 0, GetAlpha(255 * alpha)));
+
+            CFont::SetOrientation(ALIGN_LEFT);
+            CFont::PrintString(ScaleX(40.0f + GetMenuOffsetX()), ScaleY(y), gUString);
+
+            CFont::SetOrientation(ALIGN_RIGHT);
+            CFont::PrintString(SCREEN_WIDTH - ScaleX(40.0f + GetMenuOffsetX()), ScaleY(y), gUString2);
+        }
+
+        CFont::SetColor(CRGBA(225, 225, 225, GetAlpha(255)));
+        CFont::SetDropColor(CRGBA(0, 0, 0, GetAlpha(255)));
+
+#if defined(GTA3) && defined(LC01)
+        SetLCSFontStyle(false);
+#endif
+
+        CFont::SetOrientation(ALIGN_LEFT);
+        CFont::PrintString(ScaleX(40.0f + GetMenuOffsetX()), ScaleY(crimRaY), TheText.Get("CRIMRA"));
+
+        CFont::SetOrientation(ALIGN_RIGHT);
+        CFont::PrintString(SCREEN_WIDTH - ScaleX(40.0f + GetMenuOffsetX()), ScaleY(crimRaY), plugin::FormatStatic(L"%ls (%d)", CStats::FindCriminalRatingString(), CStats::FindCriminalRatingNumber()));
+    }
 
     static inline bool prefsDisplayOnFootInCar = false;
     static inline int8_t prefsConfigSetup = 0;
@@ -2687,6 +2908,11 @@ public:
         if (_this->m_nCurrentMenuPage == MENUPAGE_CONTROLLER_PS2)
             DrawControllerScreen(_this);
 
+#if defined(GTA3) && defined(LC01)
+        if (_this->m_nCurrentMenuPage == MENUPAGE_STATS)
+            DrawStats(_this);
+#endif
+
         DrawHelpText(_this);
 
 #if defined(GTA3) && defined(LC01)
@@ -2941,21 +3167,28 @@ public:
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_nParentGameEntry = 8;
 
 #ifdef LC01
+        strcpy(aScreens[MENUPAGE_DISPLAY_SETTINGS].m_aEntries[8].m_EntryName, "FET_LAN");
+        aScreens[MENUPAGE_DISPLAY_SETTINGS].m_aEntries[8].m_nAction = MENUACTION_CHANGELANG;
+        aScreens[MENUPAGE_DISPLAY_SETTINGS].m_aEntries[8].m_nTargetMenu = MENUPAGE_NONE;
+
+        aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[0].m_nAction = MENUACTION_NOTHING;
+        aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[0].m_EntryName[0] = '\0';
+
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[1].m_nAction = MENUACTION_NOTHING;
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[1].m_EntryName[0] = '\0';
-
+        
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[2].m_nAction = MENUACTION_NOTHING;
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[2].m_EntryName[0] = '\0';
-
+        
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[3].m_nAction = MENUACTION_NOTHING;
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[3].m_EntryName[0] = '\0';
-
+        
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[4].m_nAction = MENUACTION_NOTHING;
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[4].m_EntryName[0] = '\0';
-
+        
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[5].m_nAction = MENUACTION_NOTHING;
         aScreens[MENUPAGE_LANGUAGE_SETTINGS].m_aEntries[5].m_EntryName[0] = '\0';
-
+        
         aScreens[MENUPAGE_SKIN_SELECT].m_aEntries[0].m_nAction = MENUACTION_NOTHING;
         aScreens[MENUPAGE_SKIN_SELECT].m_aEntries[0].m_EntryName[0] = '\0';
 #endif
@@ -3296,6 +3529,8 @@ public:
 #endif
 
         justEnteredTab = false;
+
+        statsScrollY = 0.0f;
 
 #ifdef GTAVC
         RestoreAllScreenHacks(_this, true);
@@ -3911,8 +4146,9 @@ public:
         newViewport.Width -= newViewport.X;
         newViewport.Height -= newViewport.Y;
 
-        GetD3DDevice<IDirect3DDevice8>()->GetViewport(&previousViewport);
-        GetD3DDevice<IDirect3DDevice8>()->SetViewport(&newViewport);
+        auto dev = (IDirect3DDevice8*)GetD3DDevice();
+        dev->GetViewport(&previousViewport);
+        dev->SetViewport(&newViewport);
 
         // Render player
         static uint32_t prevTime = 0;
@@ -3943,7 +4179,7 @@ public:
         if (clump)
             RenderClump(clump);
 
-        GetD3DDevice<IDirect3DDevice8>()->SetViewport(&previousViewport);
+        dev->SetViewport(&previousViewport);
         RwRenderStateSet(rwRENDERSTATEZTESTENABLE, (void*)FALSE);
     }
 #endif
@@ -3953,9 +4189,13 @@ public:
         prefsConfigSetup = config["PrefsConfigSetup"].asInt(0);
         prefsVibration = config["PrefsVibration"].asBool(false);
 
+        for (auto& it : saveOrLoadCallbacks) {
+            it(true);
+        }
     }
 
     static inline void SaveSettings() {
+#pragma comment(linker, "/EXPORT:" __FUNCTION__"=" __FUNCDNAME__)
         plugin::config_file config(true, true);
 
         std::string str;
@@ -3973,6 +4213,10 @@ public:
         config.setUseAlignment(false);
         config.setUsePrecision(true);
         config.save();
+
+        for (auto& it : saveOrLoadCallbacks) {
+            it(false);
+        }
     }
 
     SkyUI() {
@@ -4006,12 +4250,23 @@ public:
         };
         plugin::patch::RedirectCall(0x484F3A, LAMBDA(void, __cdecl, drawBriefs, float, float, wchar_t*));
 
+        static int32_t previousOrientation = -1;
         auto drawLeftString = [](float, float y, wchar_t* str) {
             CFont::Details.m_Color.a = std::min(CFont::Details.m_Color.a, (uint8_t)GetAlpha());
             CFont::Details.m_DropColor.a = std::min(CFont::Details.m_DropColor.a, (uint8_t)GetAlpha());
 
             if (FrontEndMenuManager.m_nCurrentMenuPage == MENUPAGE_CONTROLLER_PS2)
                 CFont::SetOrientation(ALIGN_LEFT);
+
+            int32_t action = aScreens[FrontEndMenuManager.m_nCurrentMenuPage].m_aEntries[currentEntryOnLoopHackyHacky].m_nAction;
+            if (!menuOptionOrientationsMap.empty()) {
+                auto orientation = menuOptionOrientationsMap.find(action);
+
+                if (orientation != menuOptionOrientationsMap.end()) {
+                    previousOrientation = CFont::Details.m_bCentre ? ALIGN_CENTER : CFont::Details.m_bRightJustify ? ALIGN_RIGHT : ALIGN_LEFT;
+                    CFont::SetOrientation((eFontAlignment)orientation->second);
+                }
+            }
 
 #if defined(GTA3) && defined(LC01)
             float x = ScaleX(64.0f);
@@ -4028,10 +4283,13 @@ public:
 
             CFont::PrintString(ScaleXKeepCentered(64.0f + center + GetMenuOffsetX()), y, str);
 #endif
+            if (previousOrientation != -1)
+                CFont::SetOrientation((eFontAlignment)previousOrientation);
         };
         plugin::patch::RedirectCall(0x47C666, LAMBDA(void, __cdecl, drawLeftString, float, float, wchar_t*));
 
         auto drawRightString = [](float, float y, wchar_t* str) {
+            CFont::SetOrientation(ALIGN_RIGHT);
             CFont::Details.m_Color.a = std::min(CFont::Details.m_Color.a, (uint8_t)GetAlpha());
             CFont::Details.m_DropColor.a = std::min(CFont::Details.m_DropColor.a, (uint8_t)GetAlpha());
 
@@ -4040,77 +4298,86 @@ public:
 #else
             CFont::PrintString(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 64.0f + GetMenuOffsetX()), y, str);
 #endif
+
+            if (previousOrientation != -1) {
+                CFont::SetOrientation((eFontAlignment)previousOrientation);
+                previousOrientation = -1;
+            }
         };
         plugin::patch::RedirectCall(0x47C74C, LAMBDA(void, __cdecl, drawRightString, float, float, wchar_t*));
         plugin::patch::SetUChar(0x47DA11 + 6, 255);
-
-        // Stats
-        auto drawCrimRa = [](float, float, wchar_t* str) {
-            CFont::Details.m_Color.a = std::min(CFont::Details.m_Color.a, (uint8_t)GetAlpha());
-            CFont::Details.m_DropColor.a = std::min(CFont::Details.m_DropColor.a, (uint8_t)GetAlpha());
-
-#if defined(GTA3) && defined(LC01)
-            SetLCSFontStyle();
-            str = UpperCase(str);
-#endif
-            CFont::PrintString(ScaleXKeepCentered(64.0f + GetMenuOffsetX()), ScaleY(52.0f + MENU_OFFSET_Y), str);
-        };
-        plugin::patch::RedirectCall(0x4825AD, LAMBDA(void, __cdecl, drawCrimRa, float, float, wchar_t*));
-
-        auto drawRate = [](float, float, wchar_t* str) {
-            char buff[32];
-            sprintf(buff, "%d", CStats::FindCriminalRatingNumber());
-
-            float x = CFont::GetStringWidth(buff, 1);
-            CFont::Details.m_Color.a = std::min(CFont::Details.m_Color.a, (uint8_t)GetAlpha());
-            CFont::Details.m_DropColor.a = std::min(CFont::Details.m_DropColor.a, (uint8_t)GetAlpha());
-            CFont::SetRightJustifyOn();
+    
+            // Stats
+            if (0) {
+                auto drawCrimRa = [](float, float, wchar_t* str) {
+                    CFont::Details.m_Color.a = std::min(CFont::Details.m_Color.a, (uint8_t)GetAlpha());
+                    CFont::Details.m_DropColor.a = std::min(CFont::Details.m_DropColor.a, (uint8_t)GetAlpha());
 
 #if defined(GTA3) && defined(LC01)
-            SetLCSFontStyle();
-            str = UpperCase(str);
+                    SetLCSFontStyle();
+                    str = UpperCase(str);
 #endif
-            CFont::PrintString(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 64.0f + GetMenuOffsetX() - 16.0f) - x, ScaleY(52.0f + MENU_OFFSET_Y), str);
-        };
-        plugin::patch::RedirectCall(0x482620, LAMBDA(void, __cdecl, drawRate, float, float, wchar_t*));
+                    CFont::PrintString(ScaleXKeepCentered(64.0f + GetMenuOffsetX()), ScaleY(52.0f + MENU_OFFSET_Y), str);
+                };
+                plugin::patch::RedirectCall(0x4825AD, LAMBDA(void, __cdecl, drawCrimRa, float, float, wchar_t*));
 
-        auto drawRate2 = [](float, float, wchar_t* str) {
-            CFont::Details.m_Color.a = std::min(CFont::Details.m_Color.a, (uint8_t)GetAlpha());
-            CFont::Details.m_DropColor.a = std::min(CFont::Details.m_DropColor.a, (uint8_t)GetAlpha());
-            CFont::SetRightJustifyOn();
+                auto drawRate = [](float, float, wchar_t* str) {
+                    char buff[32];
+                    sprintf(buff, "%d", CStats::FindCriminalRatingNumber());
+
+                    float x = CFont::GetStringWidth(buff, 1);
+                    CFont::Details.m_Color.a = std::min(CFont::Details.m_Color.a, (uint8_t)GetAlpha());
+                    CFont::Details.m_DropColor.a = std::min(CFont::Details.m_DropColor.a, (uint8_t)GetAlpha());
+                    CFont::SetRightJustifyOn();
 
 #if defined(GTA3) && defined(LC01)
-            SetLCSFontStyle();
-            str = UpperCase(str);
+                    SetLCSFontStyle();
+                    str = UpperCase(str);
 #endif
-            CFont::PrintString(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 64.0f + GetMenuOffsetX()), ScaleY(52.0f + MENU_OFFSET_Y), str);
-        };
-        plugin::patch::RedirectCall(0x4826D0, LAMBDA(void, __cdecl, drawRate2, float, float, wchar_t*));
+                    CFont::PrintString(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 64.0f + GetMenuOffsetX() - 16.0f) - x, ScaleY(52.0f + MENU_OFFSET_Y), str);
+                };
+                plugin::patch::RedirectCall(0x482620, LAMBDA(void, __cdecl, drawRate, float, float, wchar_t*));
 
-        auto drawStatLeft = [](float, float y, wchar_t* str) {
-            CFont::SetWrapx(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 64.0f + GetMenuOffsetX()));
-            CFont::Details.m_Color.a = std::min(CFont::Details.m_Color.a, (uint8_t)GetAlpha());
-            CFont::Details.m_DropColor.a = std::min(CFont::Details.m_DropColor.a, (uint8_t)GetAlpha());
+                auto drawRate2 = [](float, float, wchar_t* str) {
+                    CFont::Details.m_Color.a = std::min(CFont::Details.m_Color.a, (uint8_t)GetAlpha());
+                    CFont::Details.m_DropColor.a = std::min(CFont::Details.m_DropColor.a, (uint8_t)GetAlpha());
+                    CFont::SetRightJustifyOn();
 
 #if defined(GTA3) && defined(LC01)
-            SetLCSFontStyle(true);
+                    SetLCSFontStyle();
+                    str = UpperCase(str);
 #endif
-            CFont::PrintString(ScaleXKeepCentered(64.0f + GetMenuOffsetX()), y + ScaleY(30.0f + MENU_OFFSET_Y), str);
-        };
-        plugin::patch::RedirectCall(0x4824E1, LAMBDA(void, __cdecl, drawStatLeft, float, float, wchar_t*));
+                    CFont::PrintString(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 64.0f + GetMenuOffsetX()), ScaleY(52.0f + MENU_OFFSET_Y), str);
+                };
+                plugin::patch::RedirectCall(0x4826D0, LAMBDA(void, __cdecl, drawRate2, float, float, wchar_t*));
 
-
-        auto drawStatRight = [](float, float y, wchar_t* str) {
-            CFont::SetWrapx(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 64.0f + GetMenuOffsetX()));
-            CFont::Details.m_Color.a = std::min(CFont::Details.m_Color.a, (uint8_t)GetAlpha());
-            CFont::Details.m_DropColor.a = std::min(CFont::Details.m_DropColor.a, (uint8_t)GetAlpha());
+                auto drawStatLeft = [](float, float y, wchar_t* str) {
+                    CFont::SetWrapx(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 64.0f + GetMenuOffsetX()));
+                    CFont::Details.m_Color.a = std::min(CFont::Details.m_Color.a, (uint8_t)GetAlpha());
+                    CFont::Details.m_DropColor.a = std::min(CFont::Details.m_DropColor.a, (uint8_t)GetAlpha());
 
 #if defined(GTA3) && defined(LC01)
-            SetLCSFontStyle(true);
+                    SetLCSFontStyle(true);
 #endif
-            CFont::PrintString(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 64.0f + GetMenuOffsetX()), y + ScaleY(30.0f + MENU_OFFSET_Y), str);
-        };
-        plugin::patch::RedirectCall(0x482527, LAMBDA(void, __cdecl, drawStatRight, float, float, wchar_t*));
+                    CFont::PrintString(ScaleXKeepCentered(64.0f + GetMenuOffsetX()), y + ScaleY(30.0f + MENU_OFFSET_Y), str);
+                };
+                plugin::patch::RedirectCall(0x4824E1, LAMBDA(void, __cdecl, drawStatLeft, float, float, wchar_t*));
+
+
+                auto drawStatRight = [](float, float y, wchar_t* str) {
+                    CFont::SetWrapx(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 64.0f + GetMenuOffsetX()));
+                    CFont::Details.m_Color.a = std::min(CFont::Details.m_Color.a, (uint8_t)GetAlpha());
+                    CFont::Details.m_DropColor.a = std::min(CFont::Details.m_DropColor.a, (uint8_t)GetAlpha());
+
+#if defined(GTA3) && defined(LC01)
+                    SetLCSFontStyle(true);
+#endif
+                    CFont::PrintString(ScaleXKeepCentered(DEFAULT_SCREEN_WIDTH - 64.0f + GetMenuOffsetX()), y + ScaleY(30.0f + MENU_OFFSET_Y), str);
+                };
+                plugin::patch::RedirectCall(0x482527, LAMBDA(void, __cdecl, drawStatRight, float, float, wchar_t*));
+            }
+        else
+            plugin::patch::Nop(0x47AE6F, 7);
 
         plugin::patch::Nop(0x4827AE, 5); // No stats header
 
@@ -4632,10 +4899,10 @@ public:
 #endif
 
 #if defined(GTA3) && defined(LC01)
-        auto cameraShowRasterHook = [](RwCamera* camera, void* pDev, RwUInt32 flags) {
-            RwCameraShowRaster(camera, pDev, CMenuManager::m_bPrefsFrameLimiter || CLoadingScreen::m_bActive);
-        };
-        plugin::patch::RedirectCall(0x580CCC, LAMBDA(void, __cdecl, cameraShowRasterHook, RwCamera*, void*, RwUInt32));
+        //auto cameraShowRasterHook = [](RwCamera* camera, void* pDev, RwUInt32 flags) {
+        //    RwCameraShowRaster(camera, pDev, CMenuManager::m_bPrefsFrameLimiter || CLoadingScreen::m_bActive);
+        //};
+        //plugin::patch::RedirectCall(0x580CCC, LAMBDA(void, __cdecl, cameraShowRasterHook, RwCamera*, void*, RwUInt32));
         
         plugin::Events::initRwEvent += []() {
             CLoadingScreen::sampleManager = std::make_unique<plugin::BassSampleManager>();
@@ -4687,6 +4954,11 @@ public:
             //0x582DD1,
             0x592C50,
             }, LAMBDA(void, __cdecl, drawLoadingScreen, const char*, const char*, const char*));
+
+        //auto startLoadingTune = [](const char* str1, const char* str2, const char* splash) {
+        //    CLoadingScreen::StartLoadingTune();
+        //};
+        //plugin::patch::RedirectCall(0x48E7E9, LAMBDA(void, __cdecl, startLoadingTune, const char*, const char*, const char*));
 
         // gGameState 1
         struct gGameState1Hook {
